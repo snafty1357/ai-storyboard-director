@@ -61,6 +61,9 @@ export default function Home() {
   const [isGeneratingGPTCollage, setIsGeneratingGPTCollage] = useState(false);
   const [storyboardPrompt, setStoryboardPrompt] = useState('');
   const [isAnalyzingCollage, setIsAnalyzingCollage] = useState(false);
+  const [showWorkflow, setShowWorkflow] = useState(false);
+  const [showReferenceImages, setShowReferenceImages] = useState(false);
+  const [viewMode, setViewMode] = useState<'collage' | 'upload'>('collage');
 
   // 履歴をlocalStorageから読み込み
   useEffect(() => {
@@ -455,6 +458,21 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 mr-2">15sec Video System</span>
+            {/* Workflow Button */}
+            <button
+              onClick={() => setShowWorkflow((v) => !v)}
+              className={`px-3 py-2 rounded-lg transition-colors text-xs flex items-center gap-1.5 ${
+                showWorkflow
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
+              }`}
+              title="ワークフロー"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h7" />
+              </svg>
+              ワークフロー
+            </button>
             {/* Prompts Button */}
             <button
               onClick={() => setShowPrompts(true)}
@@ -592,69 +610,99 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 左側：入力フォーム */}
           <div className="space-y-4">
+            {/* モード切替 */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setViewMode('collage')}
+                className={`flex-1 py-2.5 text-sm rounded-lg transition-all ${
+                  viewMode === 'collage'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
+                }`}
+              >
+                コラージュ生成
+              </button>
+              <button
+                onClick={() => setViewMode('upload')}
+                className={`flex-1 py-2.5 text-sm rounded-lg transition-all ${
+                  viewMode === 'upload'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
+                }`}
+              >
+                画像アップロード
+              </button>
+            </div>
+
+            {viewMode === 'upload' && (
+              <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
+                <h2 className="section-title text-base mb-4">画像アップロード</h2>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">画像をアップロード（最大12枚）</span>
+                  <span className="text-xs text-gray-500">{collageImages.length}/12</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {collageImages.map((img, idx) => (
+                    <div key={idx} className="relative group aspect-square">
+                      <img
+                        src={img}
+                        alt={`Collage ${idx + 1}`}
+                        className="w-full h-full object-cover rounded border border-[#2a2a3a]"
+                      />
+                      <button
+                        onClick={() => removeCollageImage(idx)}
+                        className="absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                      <span className="absolute bottom-1 left-1 text-[10px] text-white bg-black/50 px-1 rounded">
+                        {idx + 1}
+                      </span>
+                    </div>
+                  ))}
+                  {collageImages.length < 12 && (
+                    <label className="aspect-square bg-[#1a1a2a] border border-dashed border-purple-500/30 rounded flex flex-col items-center justify-center cursor-pointer hover:border-purple-500 transition-colors">
+                      <svg className="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span className="text-xs text-purple-400 mt-1">追加</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleCollageImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+                <button
+                  onClick={handleGenerateCollage}
+                  disabled={collageImages.length === 0 || isGeneratingCollage}
+                  className={`w-full py-2 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
+                    collageImages.length === 0 || isGeneratingCollage
+                      ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
+                      : 'bg-purple-600 text-white hover:bg-purple-500'
+                  }`}
+                >
+                  {isGeneratingCollage ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      コラージュ生成中...
+                    </>
+                  ) : (
+                    'コラージュを生成'
+                  )}
+                </button>
+              </div>
+            )}
+
+            {viewMode === 'collage' && (
             <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
               <h2 className="section-title text-base mb-4">コンセプト入力</h2>
-
-              {/* メインコンセプト */}
-              <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">
-                  映像コンセプト <span className="text-red-400">*</span>
-                </label>
-                <textarea
-                  value={input.concept}
-                  onChange={(e) => setInput({ ...input, concept: e.target.value })}
-                  placeholder="例：雨の都市で真実を追う孤独な探偵。フィルム・ノワールの美学で、静かな緊張感を演出したい。"
-                  className="w-full h-28 bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                />
-              </div>
-
-              {/* ジャンル選択 */}
-              <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">ジャンル</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {genres.slice(0, 8).map((g) => (
-                    <button
-                      key={g.value}
-                      onClick={() => setInput({ ...input, genre: g.value })}
-                      className={`px-3 py-2 text-xs rounded-lg transition-all ${
-                        input.genre === g.value
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
-                      }`}
-                    >
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* アスペクト比 */}
-              <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">アスペクト比</label>
-                <select
-                  value={input.aspectRatio}
-                  onChange={(e) => setInput({ ...input, aspectRatio: e.target.value as AspectRatio })}
-                  className="w-full bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
-                >
-                  {aspectRatios.map((ar) => (
-                    <option key={ar.value} value={ar.value}>
-                      {ar.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* ムード */}
-              <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">ムード / 雰囲気</label>
-                <input
-                  type="text"
-                  value={input.mood}
-                  onChange={(e) => setInput({ ...input, mood: e.target.value })}
-                  placeholder="例：mysterious, melancholic, tense"
-                  className="w-full bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                />
-              </div>
 
               {/* 登場人物設定 */}
               <div className="mb-4">
@@ -724,7 +772,17 @@ export default function Home() {
 
               {/* 参照画像 */}
               <div className="mb-4">
-                <label className="block text-sm text-gray-400 mb-2">参照画像</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm text-gray-400">参照画像</label>
+                  <button
+                    onClick={() => setShowReferenceImages((v) => !v)}
+                    className="px-3 py-1 text-xs bg-[#2a2a3a] text-gray-300 rounded hover:bg-[#3a3a4a] transition-colors flex items-center gap-1"
+                  >
+                    {showReferenceImages ? '非表示' : '表示'}
+                  </button>
+                </div>
+                {showReferenceImages && (
+                <>
                 <div className="grid grid-cols-2 gap-3">
                   {/* 参照画像 1 */}
                   <div className="relative">
@@ -819,222 +877,49 @@ export default function Home() {
                   </div>
                 </div>
                 <p className="text-xs text-gray-600 mt-2">スタイル参照用の画像をアップロード</p>
+                </>
+                )}
               </div>
 
-              {/* 動画生成フローセクション */}
-              <div className="mb-4 p-4 bg-[#0d0d12] border border-purple-500/30 rounded-lg">
-                <h3 className="text-sm font-medium text-purple-400 mb-3">動画生成</h3>
+              {/* メインコンセプト */}
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-2">
+                  映像コンセプト <span className="text-red-400">*</span>
+                </label>
+                <textarea
+                  value={input.concept}
+                  onChange={(e) => setInput({ ...input, concept: e.target.value })}
+                  placeholder="例：雨の都市で真実を追う孤独な探偵。フィルム・ノワールの美学で、静かな緊張感を演出したい。"
+                  className="w-full h-28 bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
 
-                {/* フロー切り替えタブ */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setCollageMode('upload')}
-                    className={`flex-1 py-2 text-xs rounded-lg transition-all ${
-                      collageMode === 'upload'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
-                    }`}
-                  >
-                    画像アップロード
-                  </button>
-                  <button
-                    onClick={() => setCollageMode('prompt')}
-                    className={`flex-1 py-2 text-xs rounded-lg transition-all ${
-                      collageMode === 'prompt'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
-                    }`}
-                  >
-                    プロンプトで生成
-                  </button>
-                </div>
+              {/* アスペクト比 */}
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-2">アスペクト比</label>
+                <select
+                  value={input.aspectRatio}
+                  onChange={(e) => setInput({ ...input, aspectRatio: e.target.value as AspectRatio })}
+                  className="w-full bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+                >
+                  {aspectRatios.map((ar) => (
+                    <option key={ar.value} value={ar.value}>
+                      {ar.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                {/* フロー1: 画像アップロード */}
-                {collageMode === 'upload' && (
-                  <>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-gray-400">画像をアップロード（最大12枚）</span>
-                      <span className="text-xs text-gray-500">{collageImages.length}/12</span>
-                    </div>
-                    <div className="grid grid-cols-4 gap-2 mb-3">
-                      {collageImages.map((img, idx) => (
-                        <div key={idx} className="relative group aspect-square">
-                          <img
-                            src={img}
-                            alt={`Collage ${idx + 1}`}
-                            className="w-full h-full object-cover rounded border border-[#2a2a3a]"
-                          />
-                          <button
-                            onClick={() => removeCollageImage(idx)}
-                            className="absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            ×
-                          </button>
-                          <span className="absolute bottom-1 left-1 text-[10px] text-white bg-black/50 px-1 rounded">
-                            {idx + 1}
-                          </span>
-                        </div>
-                      ))}
-                      {collageImages.length < 12 && (
-                        <label className="aspect-square bg-[#1a1a2a] border border-dashed border-purple-500/30 rounded flex flex-col items-center justify-center cursor-pointer hover:border-purple-500 transition-colors">
-                          <svg className="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                          </svg>
-                          <span className="text-xs text-purple-400 mt-1">追加</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            onChange={handleCollageImageUpload}
-                            className="hidden"
-                          />
-                        </label>
-                      )}
-                    </div>
-                    <button
-                      onClick={handleGenerateCollage}
-                      disabled={collageImages.length === 0 || isGeneratingCollage}
-                      className={`w-full py-2 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                        collageImages.length === 0 || isGeneratingCollage
-                          ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
-                          : 'bg-purple-600 text-white hover:bg-purple-500'
-                      }`}
-                    >
-                      {isGeneratingCollage ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          コラージュ生成中...
-                        </>
-                      ) : (
-                        'コラージュを生成'
-                      )}
-                    </button>
-                  </>
-                )}
-
-                {/* フロー2: プロンプトで生成 */}
-                {collageMode === 'prompt' && (
-                  <>
-                    <div className="mb-3">
-                      <label className="block text-xs text-gray-400 mb-1">シーンの説明</label>
-                      <textarea
-                        value={collagePrompt}
-                        onChange={(e) => setCollagePrompt(e.target.value)}
-                        placeholder="例: 夕暮れの東京の街並み、雨に濡れた路地、ネオンが反射する水たまり..."
-                        className="w-full h-20 bg-[#1a1a2a] border border-[#2a2a3a] rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-colors"
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mb-3">
-                      ※ 上で設定した「登場人物」もコラージュに反映されます
-                    </p>
-                    <button
-                      onClick={handleGenerateGPTCollage}
-                      disabled={!collagePrompt.trim() || isGeneratingGPTCollage}
-                      className={`w-full py-2 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                        !collagePrompt.trim() || isGeneratingGPTCollage
-                          ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
-                          : 'bg-purple-600 text-white hover:bg-purple-500'
-                      }`}
-                    >
-                      {isGeneratingGPTCollage ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          GPTでコラージュ生成中...
-                        </>
-                      ) : (
-                        'GPTでコラージュを生成'
-                      )}
-                    </button>
-                  </>
-                )}
-
-                {/* コラージュ結果（共通） */}
-                {collageResult && (
-                  <div className="mt-4 pt-4 border-t border-[#2a2a3a]">
-                    <p className="text-xs text-gray-400 mb-2">生成されたコラージュ:</p>
-                    <img
-                      src={collageResult}
-                      alt="Generated collage"
-                      className="w-full rounded-lg border border-purple-500/30"
-                    />
-
-                    {/* Step 1: ストーリーボード作成 */}
-                    <button
-                      onClick={handleAnalyzeCollage}
-                      disabled={isAnalyzingCollage}
-                      className={`w-full mt-3 py-2 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                        isAnalyzingCollage
-                          ? 'bg-indigo-600/30 text-indigo-300/50 cursor-not-allowed'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-500'
-                      }`}
-                    >
-                      {isAnalyzingCollage ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          AIがコラージュを分析中...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          ストーリーボードを作成
-                        </>
-                      )}
-                    </button>
-
-                    {/* ストーリーボードプロンプト表示 */}
-                    {storyboardPrompt && (
-                      <div className="mt-3 p-3 bg-[#1a1a2a] rounded-lg border border-indigo-500/30">
-                        <p className="text-xs text-indigo-400 mb-2">ストーリーボードプロンプト:</p>
-                        <p className="text-xs text-gray-300 leading-relaxed">{storyboardPrompt}</p>
-                      </div>
-                    )}
-
-                    {/* Step 2: 動画生成 */}
-                    <button
-                      onClick={handleGenerateVideoFromCollage}
-                      disabled={isGeneratingVideo || !storyboardPrompt}
-                      className={`w-full mt-3 py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                        isGeneratingVideo || !storyboardPrompt
-                          ? 'bg-gradient-to-r from-purple-600/30 to-pink-600/30 text-white/50 cursor-not-allowed'
-                          : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-500 hover:to-pink-500'
-                      }`}
-                    >
-                      {isGeneratingVideo ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          Seedance 2.0で動画生成中...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          動画を生成（Seedance 2.0）
-                        </>
-                      )}
-                    </button>
-                    {!storyboardPrompt && (
-                      <p className="text-xs text-gray-500 mt-1 text-center">
-                        ※ 先にストーリーボードを作成してください
-                      </p>
-                    )}
-                  </div>
-                )}
+              {/* ムード */}
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-2">ムード / 雰囲気</label>
+                <input
+                  type="text"
+                  value={input.mood}
+                  onChange={(e) => setInput({ ...input, mood: e.target.value })}
+                  placeholder="例：mysterious, melancholic, tense"
+                  className="w-full bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                />
               </div>
 
               {/* 追加指示 */}
@@ -1048,30 +933,89 @@ export default function Home() {
                 />
               </div>
 
+              {/* GPT Image 2でコラージュを作成（独立ボタン） */}
+              <button
+                onClick={handleGenerateGPTCollage}
+                disabled={!collagePrompt.trim() || isGeneratingGPTCollage}
+                className={`w-full mb-3 py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
+                  !collagePrompt.trim() || isGeneratingGPTCollage
+                    ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-500'
+                }`}
+              >
+                {isGeneratingGPTCollage ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    GPTでコラージュ生成中...
+                  </>
+                ) : (
+                  'GPT Image 2でコラージュを作成'
+                )}
+              </button>
+
+              {/* ストーリーボードを作成ボタン */}
+              <button
+                onClick={handleAnalyzeCollage}
+                disabled={isAnalyzingCollage || !collageResult}
+                className={`w-full py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
+                  isAnalyzingCollage || !collageResult
+                    ? 'bg-indigo-600/30 text-indigo-300/50 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-500'
+                }`}
+              >
+                {isAnalyzingCollage ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    AIがコラージュを分析中...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    ストーリーボードを作成
+                  </>
+                )}
+              </button>
+              {!collageResult && (
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  ※ 先にコラージュを作成してください
+                </p>
+              )}
+
             </div>
+            )}
 
             {/* ワークフロー説明 */}
-            <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-              <h3 className="text-sm font-medium text-gray-300 mb-3">ワークフロー</h3>
-              <div className="space-y-2">
-                {[
-                  { step: 1, text: '画像アップロード or プロンプト入力', desc: '素材を準備' },
-                  { step: 2, text: 'コラージュ画像を生成', desc: '複数シーンを1枚に' },
-                  { step: 3, text: 'ストーリーボードを作成', desc: 'AIがシーンを分析' },
-                  { step: 4, text: 'Seedance 2.0で動画生成', desc: '高品質映像を出力' },
-                ].map((item) => (
-                  <div key={item.step} className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded-full bg-purple-600/20 text-purple-400 flex items-center justify-center text-xs font-medium">
-                      {item.step}
+            {showWorkflow && (
+              <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
+                <h3 className="text-sm font-medium text-gray-300 mb-3">ワークフロー</h3>
+                <div className="space-y-2">
+                  {[
+                    { step: 1, text: '画像アップロード or プロンプト入力', desc: '素材を準備' },
+                    { step: 2, text: 'コラージュ画像を生成', desc: '複数シーンを1枚に' },
+                    { step: 3, text: 'ストーリーボードを作成', desc: 'AIがシーンを分析' },
+                    { step: 4, text: 'Seedance 2.0で動画生成', desc: '高品質映像を出力' },
+                  ].map((item) => (
+                    <div key={item.step} className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-full bg-purple-600/20 text-purple-400 flex items-center justify-center text-xs font-medium">
+                        {item.step}
+                      </div>
+                      <div>
+                        <p className="text-sm text-white">{item.text}</p>
+                        <p className="text-xs text-gray-500">{item.desc}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-white">{item.text}</p>
-                      <p className="text-xs text-gray-500">{item.desc}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 右側：出力表示 */}
