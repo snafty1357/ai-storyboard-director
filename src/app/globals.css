@@ -1,26 +1,113 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0f;
+  --foreground: #f0f0f5;
+  --card: #141420;
+  --card-border: #2a2a3a;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --muted: #6b7280;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-muted: var(--muted);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* カスタムスクロールバー */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--card);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* テキストエリアのスタイル */
+textarea {
+  resize: vertical;
+}
+
+/* コピーボタンのアニメーション */
+@keyframes copied {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.copied-animation {
+  animation: copied 0.3s ease-in-out;
+}
+
+/* ショットカードのグラデーション */
+.shot-card-1 {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-left: 3px solid #3b82f6;
+}
+
+.shot-card-2 {
+  background: linear-gradient(135deg, #1a1a2e 0%, #1e2a3a 100%);
+  border-left: 3px solid #8b5cf6;
+}
+
+.shot-card-3 {
+  background: linear-gradient(135deg, #1a1a2e 0%, #2a1e3a 100%);
+  border-left: 3px solid #ec4899;
+}
+
+/* プロンプトブロック */
+.prompt-block {
+  background: #0d0d12;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+/* セクションタイトル */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 0.75rem;
+}
+
+.section-title::before {
+  content: '';
+  width: 3px;
+  height: 1.2em;
+  background: var(--accent);
+  border-radius: 2px;
 }
