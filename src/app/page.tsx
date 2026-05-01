@@ -91,6 +91,7 @@ export default function Home() {
     return { collage, themeSuggestion, collageAnalysis, keyframes, seedancePrompt, video, total };
   };
   const isResizingRef = useRef(false);
+  const isLoadingFromHistoryRef = useRef(false);
   const [apiStatus, setApiStatus] = useState<{ openai: boolean; fal: boolean } | null>(null);
 
   // 履歴を Supabase から読み込み（fallback: localStorage）
@@ -301,6 +302,11 @@ export default function Home() {
   // 自動保存: output, generatedImages, generatedVideo の変化に応じて最新エントリを更新/追加
   useEffect(() => {
     if (!output) return;
+    // 履歴から読み込み中は自動保存をスキップ
+    if (isLoadingFromHistoryRef.current) {
+      isLoadingFromHistoryRef.current = false;
+      return;
+    }
     const draft: Partial<HistoryEntry> = {
       input,
       output,
@@ -355,6 +361,8 @@ export default function Home() {
 
   // 履歴から読み込み
   const loadFromHistory = (entry: HistoryEntry) => {
+    // 自動保存をスキップするためフラグを立てる
+    isLoadingFromHistoryRef.current = true;
     setInput(entry.input);
     setOutput(entry.output);
     setGeneratedImages(entry.generatedImages || []);
