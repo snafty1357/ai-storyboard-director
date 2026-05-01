@@ -320,7 +320,7 @@ export default function Home() {
     setHistory((prev) => {
       // 同一セッション (output reference identical) なら更新、なければ新規追加
       const newest = prev[0];
-      const sameSession = newest && newest.output.creativeInterpretation === output.creativeInterpretation && newest.input.concept === input.concept;
+      const sameSession = newest && newest.output?.creativeInterpretation === output.creativeInterpretation && newest.input?.concept === input.concept;
       let next: HistoryEntry[];
       let entryToPersist: HistoryEntry;
       if (sameSession) {
