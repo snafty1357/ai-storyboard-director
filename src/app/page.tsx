@@ -359,6 +359,8 @@ export default function Home() {
     setOutput(entry.output);
     setGeneratedImages(entry.generatedImages || []);
     setGeneratedVideo(entry.generatedVideo || null);
+    setCollageResult(entry.collageResult || null);
+    setDurations(entry.durations || {});
     setShowHistory(false);
   };
 
