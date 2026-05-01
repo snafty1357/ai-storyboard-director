@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import type { StoryboardInput, StoryboardOutput, Genre, AspectRatio, Character, ReferenceImage, HistoryEntry } from '@/types/storyboard';
+import type { StoryboardInput, StoryboardOutput, Genre, AspectRatio, Character, ReferenceImage, HistoryEntry, GenerationCost, GenerationDurations } from '@/types/storyboard';
 import { StoryboardPreview, StoryboardPreview3Panel } from '@/components/StoryboardPreview';
 import { generateStoryboard } from '@/lib/promptEngine';
 import { getCopyrightWarnings } from '@/lib/copyrightFilter';
@@ -70,6 +70,25 @@ export default function Home() {
   const [showStoryboardSidebar, setShowStoryboardSidebar] = useState(true);
   const [storyboardSidebarWidth, setStoryboardSidebarWidth] = useState(480);
   const [showKeyframePrompts, setShowKeyframePrompts] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [durations, setDurations] = useState<GenerationDurations>({});
+  // 単価（USD・概算）— quality=low / 720p想定
+  const PRICING = {
+    gptImageLow: 0.02,    // gpt-image-1 (low) per image with edits/generations
+    gpt4oVision: 0.005,   // gpt-4o-mini相当の vision API 1回
+    seedance720p15s: 0.30,
+  };
+  const computeCost = (entry: Partial<HistoryEntry>): GenerationCost => {
+    const collage = entry.collageResult ? PRICING.gptImageLow : 0;
+    const themeSuggestion = 0; // optional
+    const collageAnalysis = entry.output ? PRICING.gpt4oVision : 0;
+    const keyframeCount = (entry.generatedImages || []).filter((i) => !!i.url).length;
+    const keyframes = keyframeCount * PRICING.gptImageLow;
+    const seedancePrompt = keyframeCount >= 1 && entry.output?.seedancePrompt ? PRICING.gpt4oVision : 0;
+    const video = entry.generatedVideo ? PRICING.seedance720p15s : 0;
+    const total = collage + themeSuggestion + collageAnalysis + keyframes + seedancePrompt + video;
+    return { collage, themeSuggestion, collageAnalysis, keyframes, seedancePrompt, video, total };
+  };
   const isResizingRef = useRef(false);
   const [apiStatus, setApiStatus] = useState<{ openai: boolean; fal: boolean } | null>(null);
 
@@ -167,19 +186,78 @@ export default function Home() {
   const saveToHistory = () => {
     if (!output) return;
 
+    const draft: Partial<HistoryEntry> = {
+      input,
+      output,
+      generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
+      generatedVideo: generatedVideo || undefined,
+      collageResult: collageResult || undefined,
+    };
     const entry: HistoryEntry = {
       id: Date.now().toString(),
       timestamp: Date.now(),
       input,
       output,
-      generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
-      generatedVideo: generatedVideo || undefined,
+      generatedImages: draft.generatedImages,
+      generatedVideo: draft.generatedVideo,
+      collageResult: draft.collageResult,
+      cost: computeCost(draft),
     };
 
-    const newHistory = [entry, ...history].slice(0, 20); // 最大20件
+    const newHistory = [entry, ...history].slice(0, 30);
     setHistory(newHistory);
     localStorage.setItem('storyboard-history', JSON.stringify(newHistory));
   };
+
+  // 自動保存: output, generatedImages, generatedVideo の変化に応じて最新エントリを更新/追加
+  useEffect(() => {
+    if (!output) return;
+    const draft: Partial<HistoryEntry> = {
+      input,
+      output,
+      generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
+      generatedVideo: generatedVideo || undefined,
+      collageResult: collageResult || undefined,
+    };
+    const cost = computeCost(draft);
+    const totalMs = (durations.collageMs || 0) + (durations.analysisMs || 0) + (durations.videoMs || 0);
+    const durationsSnapshot: GenerationDurations = { ...durations, totalMs };
+    setHistory((prev) => {
+      // 同一セッション (output reference identical) なら更新、なければ新規追加
+      const newest = prev[0];
+      const sameSession = newest && newest.output.creativeInterpretation === output.creativeInterpretation && newest.input.concept === input.concept;
+      let next: HistoryEntry[];
+      if (sameSession) {
+        const updated: HistoryEntry = {
+          ...newest,
+          input,
+          output,
+          generatedImages: draft.generatedImages,
+          generatedVideo: draft.generatedVideo,
+          collageResult: draft.collageResult,
+          cost,
+          durations: durationsSnapshot,
+        };
+        next = [updated, ...prev.slice(1)];
+      } else {
+        const created: HistoryEntry = {
+          id: Date.now().toString(),
+          timestamp: Date.now(),
+          input,
+          output,
+          generatedImages: draft.generatedImages,
+          generatedVideo: draft.generatedVideo,
+          collageResult: draft.collageResult,
+          cost,
+          durations: durationsSnapshot,
+        };
+        next = [created, ...prev].slice(0, 30);
+      }
+      localStorage.setItem('storyboard-history', JSON.stringify(next));
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [output, generatedImages, generatedVideo, collageResult, durations]);
 
   // 履歴から読み込み
   const loadFromHistory = (entry: HistoryEntry) => {
@@ -335,6 +413,7 @@ export default function Home() {
 
     setIsGeneratingCollage(true);
     setCollageResult(null);
+    const startedAt = Date.now();
 
     try {
       const response = await fetch('/api/generate-collage', {
@@ -353,6 +432,7 @@ export default function Home() {
 
       const data = await response.json();
       setCollageResult(data.collageUrl);
+      setDurations((d) => ({ ...d, collageMs: Date.now() - startedAt }));
       setIsGeneratingCollage(false);
       // コラージュ作成後、自動でストーリーボード作成へ
       await handleAnalyzeCollage(data.collageUrl);
@@ -387,6 +467,7 @@ export default function Home() {
 
     setIsGeneratingGPTCollage(true);
     setCollageResult(null);
+    const startedAt = Date.now();
 
     try {
       // フォームの入力をプロンプトに反映
@@ -431,6 +512,7 @@ export default function Home() {
 
       const data = await response.json();
       setCollageResult(data.url);
+      setDurations((d) => ({ ...d, collageMs: Date.now() - startedAt }));
     } catch (error) {
       console.error('Failed to generate GPT collage:', error);
       alert('コラージュ生成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -448,6 +530,7 @@ export default function Home() {
     setStoryboardPrompt('');
     setOutput(null);
     setGeneratedImages([]);
+    const startedAt = Date.now();
 
     try {
       // 1. コラージュ分析
@@ -549,6 +632,7 @@ export default function Home() {
           console.error('Failed to generate seedance prompt from keyframes:', err);
         }
       }
+      setDurations((d) => ({ ...d, analysisMs: Date.now() - startedAt }));
     } catch (error) {
       console.error('Failed to analyze collage:', error);
       alert('ストーリーボード作成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -563,6 +647,7 @@ export default function Home() {
 
     setIsGeneratingVideo(true);
     setGeneratedVideo(null);
+    const startedAt = Date.now();
 
     // ストーリーボード作成時にキーフレームから生成された Seedance プロンプトを使用
     let videoPrompt = output?.seedancePrompt || '';
@@ -636,6 +721,7 @@ export default function Home() {
 
       const data = await response.json();
       setGeneratedVideo(data.videoUrl);
+      setDurations((d) => ({ ...d, videoMs: Date.now() - startedAt }));
     } catch (error) {
       console.error('Failed to generate video:', error);
       alert('動画生成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -948,37 +1034,69 @@ export default function Home() {
                 </svg>
               </button>
             </div>
-            <div className="p-4 overflow-y-auto max-h-[calc(80vh-60px)]">
+            <div className="px-4 pt-3">
+              <input
+                type="text"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                placeholder="ID または コンセプトで検索..."
+                className="w-full bg-[#0d0d12] border border-[#2a2a3a] rounded-lg px-4 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              {history.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  合計 {history.length} 件 / 累計コスト ${history.reduce((sum, e) => sum + (e.cost?.total || 0), 0).toFixed(3)}
+                </p>
+              )}
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(80vh-140px)]">
               {history.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">履歴がありません</p>
               ) : (
                 <div className="space-y-3">
-                  {history.map((entry) => (
+                  {history
+                    .filter((e) => {
+                      if (!historySearch.trim()) return true;
+                      const q = historySearch.trim().toLowerCase();
+                      return e.id.toLowerCase().includes(q) || e.input.concept.toLowerCase().includes(q);
+                    })
+                    .map((entry) => (
                     <div
                       key={entry.id}
                       className="bg-[#0d0d12] border border-[#2a2a3a] rounded-lg p-4 hover:border-indigo-500/50 transition-colors"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-mono text-gray-500 bg-[#1a1a2a] px-1.5 py-0.5 rounded">ID: {entry.id}</span>
+                            {entry.collageResult && <span className="text-[10px] px-1.5 py-0.5 bg-purple-600/20 text-purple-400 rounded">コラージュ</span>}
+                            {entry.generatedImages && entry.generatedImages.filter((i) => i.url).length > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-indigo-600/20 text-indigo-400 rounded">
+                                キーフレーム×{entry.generatedImages.filter((i) => i.url).length}
+                              </span>
+                            )}
+                            {entry.generatedVideo && <span className="text-[10px] px-1.5 py-0.5 bg-pink-600/20 text-pink-400 rounded">動画</span>}
+                          </div>
                           <p className="text-sm text-white truncate mb-1">
                             {entry.input.concept.slice(0, 50)}...
                           </p>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             <span>{new Date(entry.timestamp).toLocaleString('ja-JP')}</span>
                             <span>|</span>
-                            <span>{entry.input.genre}</span>
-                            <span>|</span>
                             <span>{entry.input.aspectRatio}</span>
-                            {entry.generatedImages && entry.generatedImages.length > 0 && (
+                            {entry.cost && (
                               <>
                                 <span>|</span>
-                                <span className="text-indigo-400">{entry.generatedImages.length}枚の画像</span>
+                                <span className="text-amber-400 font-mono" title={`内訳: コラージュ$${entry.cost.collage.toFixed(3)} / 分析$${entry.cost.collageAnalysis.toFixed(3)} / キーフレーム$${entry.cost.keyframes.toFixed(3)} / SDプロンプト$${entry.cost.seedancePrompt.toFixed(3)} / 動画$${entry.cost.video.toFixed(3)}`}>
+                                  ${entry.cost.total.toFixed(3)}
+                                </span>
                               </>
                             )}
-                            {entry.generatedVideo && (
+                            {entry.durations && (entry.durations.totalMs ?? 0) > 0 && (
                               <>
                                 <span>|</span>
-                                <span className="text-purple-400">動画あり</span>
+                                <span className="text-cyan-400 font-mono" title={`コラージュ: ${((entry.durations.collageMs || 0) / 1000).toFixed(1)}s / 分析: ${((entry.durations.analysisMs || 0) / 1000).toFixed(1)}s / 動画: ${((entry.durations.videoMs || 0) / 1000).toFixed(1)}s`}>
+                                  ⏱ {((entry.durations.totalMs || 0) / 1000).toFixed(1)}s
+                                </span>
                               </>
                             )}
                           </div>

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(awk 'NR>=703 && NR<=1153' \"C:\\\\Users\\\\snaft\\\\OneDrive\\\\デスクトップ\\\\開発\\\\ai-storyboard-director\\\\src\\\\app\\\\page.tsx\")",
+      "Bash(node -e \"const fs=require\\('fs'\\);const c=fs.readFileSync\\('/tmp/collage_block.tsx','utf8'\\);let d=0;let l=0;for\\(const line of c.split\\('\\\\n'\\)\\){l++;const o=\\(line.match\\(/<div\\\\b/g\\)||[]\\).length;const cl=\\(line.match\\(/<\\\\/div>/g\\)||[]\\).length;d+=o-cl;}console.log\\('final div balance:',d\\);\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(npm run *)",
+      "Bash(awk 'NR>=1152 && NR<=1495' \"C:\\\\Users\\\\snaft\\\\OneDrive\\\\デスクトップ\\\\開発\\\\ai-storyboard-director\\\\src\\\\app\\\\page.tsx\")",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(awk 'NR>=1232 && NR<=1322' \"C:\\\\Users\\\\snaft\\\\OneDrive\\\\デスクトップ\\\\開発\\\\ai-storyboard-director\\\\src\\\\app\\\\page.tsx\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(vercel deploy *)"
+    ]
+  }
+}

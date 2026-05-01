@@ -138,6 +138,25 @@ export interface ArchetypeConversion {
   reason: string;
 }
 
+// 生成所要時間（ミリ秒）
+export interface GenerationDurations {
+  collageMs?: number;
+  analysisMs?: number;
+  videoMs?: number;
+  totalMs?: number;
+}
+
+// 生成費用の内訳
+export interface GenerationCost {
+  collage: number;            // GPT Image 2 コラージュ生成
+  themeSuggestion: number;    // 画像→テーマ提案 (gpt-4o vision)
+  collageAnalysis: number;    // コラージュ分析 (gpt-4o vision)
+  keyframes: number;          // キーフレーム x N (GPT Image 2)
+  seedancePrompt: number;     // Seedanceプロンプト生成 (gpt-4o vision)
+  video: number;              // Seedance 2.0 動画生成
+  total: number;              // 合計（USD）
+}
+
 // 履歴エントリ
 export interface HistoryEntry {
   id: string;
@@ -146,4 +165,7 @@ export interface HistoryEntry {
   output: StoryboardOutput;
   generatedImages?: { url: string; prompt: string }[];
   generatedVideo?: string;
+  collageResult?: string;
+  cost?: GenerationCost;
+  durations?: GenerationDurations;
 }
