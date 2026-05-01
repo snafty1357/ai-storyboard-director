@@ -102,6 +102,13 @@ textarea {
   font-weight: 600;
   color: var(--foreground);
   margin-bottom: 0.75rem;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
+}
+
+/* グローバル: 縦書き禁止 */
+h1, h2, h3, h4, h5, h6, button, label {
+  writing-mode: horizontal-tb;
 }
 
 .section-title::before {
@@ -110,4 +117,15 @@ textarea {
   height: 1.2em;
   background: var(--accent);
   border-radius: 2px;
+}
+
+/* details/summary のデフォルトマーカーを非表示 */
+summary {
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+summary::marker {
+  display: none;
 }

@@ -78,11 +78,22 @@ export function StoryboardPreview({ output, title, genre, tagline, generatedImag
             <div className="aspect-[16/10] relative overflow-hidden">
               {/* 生成された画像がある場合は表示 */}
               {generatedImages && generatedImages[Math.floor(idx / 2)]?.url ? (
-                <img
-                  src={generatedImages[Math.floor(idx / 2)].url}
-                  alt={`Panel ${idx + 1}`}
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
+                <>
+                  <img
+                    src={generatedImages[Math.floor(idx / 2)].url}
+                    alt={`Panel ${idx + 1}`}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  {/* 人物検出回避用グリッド */}
+                  <div
+                    className="absolute inset-0 pointer-events-none mix-blend-overlay"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(to right, rgba(255,255,255,0.35) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.35) 1px, transparent 1px)',
+                      backgroundSize: '32px 32px',
+                    }}
+                  />
+                </>
               ) : (
                 /* グラデーション背景（シネマティック風） */
                 <div
@@ -193,11 +204,22 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline, generat
             <div className="aspect-video relative overflow-hidden">
               {/* 生成された画像がある場合は表示 */}
               {generatedImages && generatedImages[idx]?.url ? (
-                <img
-                  src={generatedImages[idx].url}
-                  alt={`Panel ${idx + 1}`}
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
+                <>
+                  <img
+                    src={generatedImages[idx].url}
+                    alt={`Panel ${idx + 1}`}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  {/* 人物検出回避用グリッド */}
+                  <div
+                    className="absolute inset-0 pointer-events-none mix-blend-overlay"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(to right, rgba(255,255,255,0.35) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.35) 1px, transparent 1px)',
+                      backgroundSize: '32px 32px',
+                    }}
+                  />
+                </>
               ) : (
                 <div
                   className={`absolute inset-0 bg-gradient-to-br ${colors[idx].bg}`}

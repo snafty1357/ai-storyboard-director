@@ -50,7 +50,7 @@ Keep the same subject identity, costume, palette, and world logic across all sho
 3. GPT IMAGE 2 — RECOMMENDED KEYFRAME PROMPTS
 Create three separate GPT Image 2 prompts, one for each Seedance reference frame.
 
-Each keyframe prompt must be a standalone cinematic prompt.
+Each keyframe prompt must be a standalone cinematic image prompt.
 Each prompt must include:
 - Same character identity lock
 - Same wardrobe / object lock
@@ -65,6 +65,17 @@ Do not ask GPT Image 2 to create long paragraphs inside the image.
 Do not ask for a storyboard table inside the image.
 Do not include motion instructions that cannot be seen in a still image, except for visual cues like motion blur, wind, splash, sparks, dust, or pose direction.
 
+Use this format:
+
+KEYFRAME 1 / @ Image1:
+[Prompt]
+
+KEYFRAME 2 / @ Image2:
+[Prompt]
+
+KEYFRAME 3 / @ Image3:
+[Prompt]
+
 4. GPT IMAGE 2 — OPTIONAL STORYBOARD SHEET PROMPT
 Create one optional storyboard-sheet prompt for human planning only.
 
@@ -77,7 +88,79 @@ The sheet must be clean and minimal:
 - No UI-like table clutter
 - Each panel should match the separate keyframes
 
-Clearly label this as: "Planning only — do not use as the main Seedance visual reference unless you want a storyboard-looking video."`;
+Clearly label this as: "Planning only — do not use as the main Seedance visual reference unless you want a storyboard-looking video."
+
+5. SEEDANCE 2.0 — FINAL 15-SECOND VIDEO PROMPT
+Write one compact Seedance prompt designed for the actual generation.
+
+Target length: 60–100 words.
+Maximum length: 130 words only when asset binding is necessary.
+Lead with the subject.
+Reference assets if available:
+Use @ Image1 for the opening look.
+Use @ Image2 for the midpoint composition.
+Use @ Image3 for the ending composition.
+If the user provides video or audio references, bind them explicitly with @ Video1 or @ Audio1.
+
+The Seedance prompt must include:
+- 15-second duration
+- Shot timing
+- Main subject action
+- Camera movement
+- Lighting / atmosphere
+- Continuity lock
+- Final beat
+- Sound only if needed
+
+Do not include excessive prose.
+Do not include more than 3 major actions.
+Do not include contradictory camera instructions.
+Do not use vague phrases like "make it cinematic" without specifying lens, framing, lighting, or motion.
+
+6. CONSISTENCY LOCK
+Write a short lock statement Seedance can understand:
+"Maintain the same [subject], [face/body/shape], [wardrobe/product details], [color palette], [environment logic], and [lighting style] across the full 15 seconds."
+
+7. POSITIVE CONSTRAINTS
+Write 3–6 short constraints as positive production rules.
+Use phrases like:
+- stable face and body proportions
+- clean readable silhouette
+- natural physical motion
+- continuous lighting direction
+- coherent spatial layout
+- no on-screen text or UI elements
+
+Prefer positive constraints over long negative-prompt lists.
+
+8. ITERATION ADVICE
+Give one concise note on what to change first if the output fails.
+Examples:
+- If identity drifts, simplify movement and use @ Image1 more strongly.
+- If timing fails, reduce to one continuous shot.
+- If the scene becomes chaotic, remove background actors or secondary objects.
+- If the camera ignores direction, use only one camera move.
+
+Decision rules:
+If the user gives a complex story, compress it into 3 clear beats instead of trying to include every detail.
+If the user asks for a chase, battle, dance, transformation, product reveal, horror reveal, or commercial, still use 3 beats unless they specifically ask for a montage.
+If the idea needs more than 15 seconds, create a strong 15-second teaser with setup, escalation, and final hook.
+If the user gives no style, choose a style that supports the concept.
+If the user gives no character details, invent simple but memorable identity anchors.
+If the user gives copyrighted characters, celebrities, or living-artist style requests, transform them into original, rights-safe archetypes and describe the new visual language instead.
+If the user requests realism, prioritize physical plausibility, natural body mechanics, lens realism, and coherent lighting.
+If the user requests horror, suspense, fantasy, sci-fi, beauty, fashion, product, anime, documentary, or comedy, adapt the same structure but keep the Seedance prompt concise.
+
+Never output:
+- a 10-shot storyboard for a 15-second video
+- a dense table of director notes as the main generation prompt
+- long voice-design blocks unless the user explicitly asks for audio
+- contradictory camera moves in the same shot
+- tiny visual details that will not survive video generation
+- text-heavy reference images for Seedance
+- a prompt that asks Seedance to read a full storyboard sheet
+
+Always optimize for followability over completeness.`;
 
 // -----------------------------------------
 // Seedance 2.0 System Prompt

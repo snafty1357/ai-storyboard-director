@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const base64 = match[2];
+  const buffer = Buffer.from(base64, 'base64');
+  const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
+  const ext = mimeType.split('/')[1] || 'png';
+  return { blob, ext };
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, aspectRatio } = await request.json();
+    const { prompt, aspectRatio, referenceImages } = await request.json();
 
     if (!prompt) {
       return NextResponse.json(
@@ -22,20 +33,61 @@ export async function POST(request: NextRequest) {
     // アスペクト比に応じたサイズを設定
     const size = aspectRatio === '9:16' ? '1024x1536' : '1536x1024';
 
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-image-1',
-        prompt: prompt,
-        n: 1,
-        size: size,
-        quality: 'high',
-      }),
-    });
+    const refs: string[] = Array.isArray(referenceImages)
+      ? referenceImages.filter((u) => typeof u === 'string' && u.length > 0)
+      : [];
+
+    let response: Response;
+
+    if (refs.length > 0) {
+      // 参照画像がある場合は edits エンドポイントを使用
+      const formData = new FormData();
+      formData.append('model', 'gpt-image-1');
+      formData.append('prompt', prompt);
+      formData.append('size', size);
+      formData.append('quality', 'low');
+      formData.append('n', '1');
+
+      for (let i = 0; i < refs.length; i++) {
+        const url = refs[i];
+        if (url.startsWith('data:')) {
+          const converted = dataUrlToBlob(url);
+          if (!converted) continue;
+          formData.append('image[]', converted.blob, `ref-${i}.${converted.ext}`);
+        } else {
+          const r = await fetch(url);
+          if (!r.ok) continue;
+          const buf = Buffer.from(await r.arrayBuffer());
+          const ct = r.headers.get('content-type') || 'image/png';
+          const blob = new Blob([new Uint8Array(buf)], { type: ct });
+          const ext = ct.split('/')[1] || 'png';
+          formData.append('image[]', blob, `ref-${i}.${ext}`);
+        }
+      }
+
+      response = await fetch('https://api.openai.com/v1/images/edits', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: formData,
+      });
+    } else {
+      response = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-image-1',
+          prompt: prompt,
+          n: 1,
+          size: size,
+          quality: 'low',
+        }),
+      });
+    }
 
     if (!response.ok) {
       const error = await response.json();

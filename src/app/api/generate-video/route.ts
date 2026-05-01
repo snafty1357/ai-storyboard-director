@@ -1,5 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fal } from '@fal-ai/client';
+import sharp from 'sharp';
+
+// 画像にグリッドを焼き込んで人物検出を回避
+async function bakeGridOverlay(imageBuffer: Buffer): Promise<Buffer> {
+  const image = sharp(imageBuffer);
+  const meta = await image.metadata();
+  const width = meta.width || 1024;
+  const height = meta.height || 1024;
+  const gridSize = 28;
+  const lines: string[] = [];
+  for (let x = 0; x <= width; x += gridSize) {
+    lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="white" stroke-width="2" opacity="0.6"/>`);
+  }
+  for (let y = 0; y <= height; y += gridSize) {
+    lines.push(`<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="white" stroke-width="2" opacity="0.6"/>`);
+  }
+  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${lines.join('')}</svg>`;
+  return await image
+    .composite([{ input: Buffer.from(svg), blend: 'over' }])
+    .jpeg({ quality: 90 })
+    .toBuffer();
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,27 +49,29 @@ export async function POST(request: NextRequest) {
 
     let finalImageUrl = imageUrl;
 
-    // base64の場合はfal.storageにアップロード
-    if (imageUrl && imageUrl.startsWith('data:')) {
+    // 画像にグリッドを焼き込んでアップロード
+    if (imageUrl) {
       try {
-        // base64をBlobに変換
-        const base64Data = imageUrl.split(',')[1];
-        const mimeType = imageUrl.split(';')[0].split(':')[1];
-        const byteCharacters = atob(base64Data);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        let imageBuffer: Buffer;
+        if (imageUrl.startsWith('data:')) {
+          const base64Data = imageUrl.split(',')[1];
+          imageBuffer = Buffer.from(base64Data, 'base64');
+        } else {
+          const res = await fetch(imageUrl);
+          if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+          imageBuffer = Buffer.from(await res.arrayBuffer());
         }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: mimeType });
-        const file = new File([blob], 'collage.jpg', { type: mimeType });
 
-        // fal.storageにアップロード
+        // グリッドを焼き込み
+        const processedBuffer = await bakeGridOverlay(imageBuffer);
+        const blob = new Blob([new Uint8Array(processedBuffer)], { type: 'image/jpeg' });
+        const file = new File([blob], 'collage.jpg', { type: 'image/jpeg' });
+
         finalImageUrl = await fal.storage.upload(file);
-        console.log('Uploaded image URL:', finalImageUrl);
+        console.log('Uploaded image URL (with grid):', finalImageUrl);
       } catch (uploadError) {
-        console.error('Failed to upload image:', uploadError);
-        throw new Error('Failed to upload image to storage');
+        console.error('Failed to process/upload image:', uploadError);
+        throw new Error('Failed to process image');
       }
     }
 
@@ -60,6 +84,7 @@ export async function POST(request: NextRequest) {
       input: {
         prompt: prompt,
         image_url: finalImageUrl,
+        generate_audio: false,
       },
       logs: true,
       onQueueUpdate: (update) => {

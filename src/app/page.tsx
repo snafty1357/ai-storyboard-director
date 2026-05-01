@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { StoryboardInput, StoryboardOutput, Genre, AspectRatio, Character, ReferenceImage, HistoryEntry } from '@/types/storyboard';
 import { StoryboardPreview, StoryboardPreview3Panel } from '@/components/StoryboardPreview';
 import { generateStoryboard } from '@/lib/promptEngine';
@@ -64,6 +64,14 @@ export default function Home() {
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [showReferenceImages, setShowReferenceImages] = useState(false);
   const [viewMode, setViewMode] = useState<'collage' | 'upload'>('collage');
+  const [isSuggestingTheme, setIsSuggestingTheme] = useState(false);
+  const [hasSuggestedTheme, setHasSuggestedTheme] = useState(false);
+  const [showConceptInput, setShowConceptInput] = useState(true);
+  const [showStoryboardSidebar, setShowStoryboardSidebar] = useState(true);
+  const [storyboardSidebarWidth, setStoryboardSidebarWidth] = useState(480);
+  const [showKeyframePrompts, setShowKeyframePrompts] = useState(false);
+  const isResizingRef = useRef(false);
+  const [apiStatus, setApiStatus] = useState<{ openai: boolean; fal: boolean } | null>(null);
 
   // 履歴をlocalStorageから読み込み
   useEffect(() => {
@@ -76,6 +84,84 @@ export default function Home() {
       }
     }
   }, []);
+
+  // ストーリーボードサイドバーのリサイズ
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const newWidth = window.innerWidth - e.clientX;
+      const clamped = Math.min(Math.max(newWidth, 320), Math.min(550, window.innerWidth - 200));
+      setStoryboardSidebarWidth(clamped);
+    };
+    const handleUp = () => {
+      if (isResizingRef.current) {
+        isResizingRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, []);
+
+  // APIステータスを取得
+  useEffect(() => {
+    let cancelled = false;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setApiStatus({ openai: !!data?.openai?.configured, fal: !!data?.fal?.configured });
+        }
+      } catch {
+        if (!cancelled) setApiStatus({ openai: false, fal: false });
+      }
+    };
+    fetchStatus();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 画像アップロード時に自動でテーマを提案
+  useEffect(() => {
+    if (viewMode !== 'upload') return;
+    if (collageImages.length === 0) return;
+    if (hasSuggestedTheme) return;
+    if (input.concept.trim()) return;
+
+    const timer = setTimeout(async () => {
+      setIsSuggestingTheme(true);
+      try {
+        const res = await fetch('/api/suggest-theme', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ images: collageImages.slice(0, 4) }),
+        });
+        if (!res.ok) throw new Error('suggest failed');
+        const data = await res.json();
+        if (data.theme) {
+          setInput((prev) => prev.concept.trim() ? prev : { ...prev, concept: data.theme });
+          setHasSuggestedTheme(true);
+        }
+      } catch (err) {
+        console.error('Theme suggestion failed:', err);
+      } finally {
+        setIsSuggestingTheme(false);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [collageImages, viewMode, input.concept, hasSuggestedTheme]);
+
+  // 画像アップロードがクリアされたらフラグをリセット
+  useEffect(() => {
+    if (collageImages.length === 0) setHasSuggestedTheme(false);
+  }, [collageImages.length]);
 
   // 履歴を保存
   const saveToHistory = () => {
@@ -267,6 +353,10 @@ export default function Home() {
 
       const data = await response.json();
       setCollageResult(data.collageUrl);
+      setIsGeneratingCollage(false);
+      // コラージュ作成後、自動でストーリーボード作成へ
+      await handleAnalyzeCollage(data.collageUrl);
+      return;
     } catch (error) {
       console.error('Failed to generate collage:', error);
       alert('コラージュ生成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -275,25 +365,54 @@ export default function Home() {
     }
   };
 
+  // 単一コラージュ画像を直接アップロード → ストーリーボード作成
+  const handleUploadCollageDirect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const url = event.target?.result as string;
+      setCollageResult(url);
+      await handleAnalyzeCollage(url);
+    };
+    reader.readAsDataURL(file);
+  };
+
   // GPT Image 2でコラージュ画像を生成
   const handleGenerateGPTCollage = async () => {
-    if (!collagePrompt.trim()) return;
+    if (!input.concept.trim()) {
+      alert('映像コンセプトを入力してください');
+      return;
+    }
 
     setIsGeneratingGPTCollage(true);
     setCollageResult(null);
 
     try {
-      // 人物設定をプロンプトに反映
-      let fullPrompt = collagePrompt;
+      // フォームの入力をプロンプトに反映
+      const parts: string[] = [input.concept.trim()];
+      if (input.mood?.trim()) {
+        parts.push(`Mood: ${input.mood.trim()}`);
+      }
       if (input.characters && input.characters.length > 0) {
         const characterDescriptions = input.characters.map((char, idx) => {
           return `Character ${idx + 1} (${char.role}): ${char.name || 'unnamed'}, ${char.appearance}, wearing ${char.clothing}`;
         }).join('. ');
-        fullPrompt = `${collagePrompt}. Characters: ${characterDescriptions}`;
+        parts.push(`Characters: ${characterDescriptions}`);
       }
+      if (input.additionalNotes?.trim()) {
+        parts.push(`Notes: ${input.additionalNotes.trim()}`);
+      }
+      const fullPrompt = parts.join('. ');
+
+      // 参照画像URLを抽出
+      const refs = (input.referenceImages || []).map((r) => r.url).filter((u) => !!u);
+      const refNote = refs.length > 0
+        ? ' Use the provided reference images as visual style and character/look guides — match the aesthetic, color palette, and subject likeness consistently across all 12 frames.'
+        : '';
 
       // コラージュ風のプロンプトを生成
-      const collageImagePrompt = `A cinematic storyboard collage with 12 frames arranged in a 4x3 grid. Each frame shows a different scene from the story: ${fullPrompt}. Style: professional cinematography, dramatic lighting, high contrast, film grain. Aspect ratio: ${input.aspectRatio}. High quality, photorealistic.`;
+      const collageImagePrompt = `A cinematic storyboard collage with 12 frames arranged in a 4x3 grid. Each frame shows a different scene from the story: ${fullPrompt}.${refNote} Style: professional cinematography, dramatic lighting, high contrast, film grain. Aspect ratio: ${input.aspectRatio}. High quality, photorealistic.`;
 
       const response = await fetch('/api/generate-image', {
         method: 'POST',
@@ -301,6 +420,7 @@ export default function Home() {
         body: JSON.stringify({
           prompt: collageImagePrompt,
           aspectRatio: input.aspectRatio,
+          referenceImages: refs,
         }),
       });
 
@@ -320,18 +440,22 @@ export default function Home() {
   };
 
   // コラージュを分析してストーリーボードプロンプトを生成
-  const handleAnalyzeCollage = async () => {
-    if (!collageResult) return;
+  const handleAnalyzeCollage = async (urlOverride?: string) => {
+    const collageUrl = typeof urlOverride === 'string' ? urlOverride : collageResult;
+    if (!collageUrl) return;
 
     setIsAnalyzingCollage(true);
     setStoryboardPrompt('');
+    setOutput(null);
+    setGeneratedImages([]);
 
     try {
+      // 1. コラージュ分析
       const response = await fetch('/api/analyze-collage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageUrl: collageResult,
+          imageUrl: collageUrl,
         }),
       });
 
@@ -342,9 +466,92 @@ export default function Home() {
 
       const data = await response.json();
       setStoryboardPrompt(data.prompt);
+
+      // 2. ストーリーボード出力を生成（プロンプトエンジン）
+      const conceptForGen = input.concept.trim() || data.prompt;
+      const generated = generateStoryboard({ ...input, concept: conceptForGen });
+      setOutput(generated);
+
+      // 3. キーフレーム画像を生成（コラージュを参照画像として使用）
+      const newImages: { url: string; prompt: string }[] = [];
+      const tryGenerateKeyframe = async (
+        scenePrompt: string,
+        attempt: 'full' | 'safer' | 'minimal'
+      ): Promise<string> => {
+        let prompt: string;
+        if (attempt === 'full') {
+          prompt = `Extract and render this single scene as a standalone cinematic frame, using the provided collage as the visual reference for character likeness, style, color palette, and aesthetic. Scene: ${scenePrompt}. Match the look and characters from the reference collage. Aspect ratio: ${input.aspectRatio}. High quality, photorealistic, dramatic lighting.`;
+        } else if (attempt === 'safer') {
+          // セーフティ違反回避: 人物描写を一般化、抽象的な表現に
+          prompt = `Cinematic frame inspired by the reference collage. Match the visual style, color palette, and atmosphere. Scene: ${scenePrompt}. Aspect ratio: ${input.aspectRatio}. Professional cinematography, dramatic lighting, painterly style. No identifiable likeness of real people.`;
+        } else {
+          // 最小限: 環境・雰囲気のみ（キャラクター描写を完全に避ける）
+          prompt = `Cinematic environment shot. Match the color palette and lighting from the reference collage. Setting and mood: ${scenePrompt.split(/[.!?]/)[0] || 'cinematic'}. Aspect ratio: ${input.aspectRatio}. No people, focus on environment, atmosphere, lighting, and objects.`;
+        }
+        const imgRes = await fetch('/api/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            aspectRatio: input.aspectRatio,
+            referenceImages: [collageUrl],
+          }),
+        });
+        if (!imgRes.ok) {
+          const err = await imgRes.json().catch(() => ({}));
+          throw new Error(err.error || 'Image generation failed');
+        }
+        const imgData = await imgRes.json();
+        return imgData.url as string;
+      };
+
+      for (let i = 0; i < generated.keyframePrompts.length; i++) {
+        const kf = generated.keyframePrompts[i];
+        const attempts: ('full' | 'safer' | 'minimal')[] = ['full', 'safer', 'minimal'];
+        let url = '';
+        for (const attempt of attempts) {
+          try {
+            url = await tryGenerateKeyframe(kf.prompt, attempt);
+            if (url) break;
+          } catch (err) {
+            console.warn(`Keyframe ${i + 1} attempt "${attempt}" failed:`, err);
+          }
+        }
+        if (!url) {
+          console.error(`Failed to generate keyframe ${i + 1} after all retries.`);
+        }
+        newImages.push({ url, prompt: kf.prompt });
+        setGeneratedImages([...newImages]);
+      }
+
+      // 4. キーフレーム画像から Seedance プロンプトを生成して output.seedancePrompt を更新
+      const validKeyframes = newImages.map((n) => n.url).filter((u) => !!u);
+      if (validKeyframes.length >= 1) {
+        try {
+          const sdRes = await fetch('/api/generate-seedance-prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              keyframeUrls: validKeyframes.slice(0, 3),
+              concept: conceptForGen,
+              mood: input.mood,
+              additionalNotes: input.additionalNotes,
+              aspectRatio: input.aspectRatio,
+            }),
+          });
+          if (sdRes.ok) {
+            const sdData = await sdRes.json();
+            if (sdData.prompt) {
+              setOutput((prev) => prev ? { ...prev, seedancePrompt: sdData.prompt } : prev);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to generate seedance prompt from keyframes:', err);
+        }
+      }
     } catch (error) {
       console.error('Failed to analyze collage:', error);
-      alert('コラージュ分析に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      alert('ストーリーボード作成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setIsAnalyzingCollage(false);
     }
@@ -357,9 +564,59 @@ export default function Home() {
     setIsGeneratingVideo(true);
     setGeneratedVideo(null);
 
-    // プロンプトを生成（ストーリーボードプロンプトがあればそれを使用）
-    const videoPrompt = storyboardPrompt || output?.seedancePrompt ||
-      `Cinematic video sequence. ${input.concept || 'Dynamic visual storytelling'}. ${input.mood || 'Dramatic atmosphere'}. Smooth camera movements, professional cinematography, high quality 4K footage.`;
+    // ストーリーボード作成時にキーフレームから生成された Seedance プロンプトを使用
+    let videoPrompt = output?.seedancePrompt || '';
+    const keyframeUrls = generatedImages.map((g) => g.url).filter((u) => !!u);
+
+    // output に Seedance プロンプトが無く、キーフレームがある場合はその場で生成
+    if (!videoPrompt && keyframeUrls.length >= 1) {
+      try {
+        const res = await fetch('/api/generate-seedance-prompt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            keyframeUrls: keyframeUrls.slice(0, 3),
+            concept: input.concept,
+            mood: input.mood,
+            additionalNotes: input.additionalNotes,
+            aspectRatio: input.aspectRatio,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.prompt) {
+            videoPrompt = data.prompt as string;
+            setOutput((prev) => prev ? { ...prev, seedancePrompt: videoPrompt } : prev);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to generate seedance prompt from keyframes:', err);
+      }
+    }
+
+    // フォールバック: テキストベース構築
+    if (!videoPrompt) {
+      const subject = (input.concept || 'a single subject').trim();
+      const mood = input.mood?.trim();
+      const hasOutput = !!output && output.shotPlan && output.shotPlan.length >= 3;
+      const shot1 = hasOutput ? output.shotPlan[0] : null;
+      const shot2 = hasOutput ? output.shotPlan[1] : null;
+      const shot3 = hasOutput ? output.shotPlan[2] : null;
+      const opening = shot1
+        ? `${shot1.action}. Camera ${shot1.cameraMovement}, ${shot1.lighting}.`
+        : `${subject} establishing shot. Slow push-in, ${mood || 'cinematic'} lighting.`;
+      const midpoint = shot2
+        ? `${shot2.action}. Camera ${shot2.cameraMovement}, ${shot2.lighting}.`
+        : `${subject} action escalates. Tracking shot, dynamic mood.`;
+      const ending = shot3
+        ? `${shot3.action}. Camera ${shot3.cameraMovement}, ${shot3.lighting}. Final beat.`
+        : `${subject} final beat. Pull back, resolved composition.`;
+      const lock = `Maintain the same ${subject}, face/body/shape, wardrobe, color palette, and lighting style across the full 15 seconds.`;
+      const noGrid = 'Generate the video clean, without grid lines, overlays, or checkerboard patterns from the reference image.';
+      videoPrompt = `${subject}. 15-second cinematic sequence in 3 beats. @ Image1 (0-5s): ${opening} @ Image2 (5-10s): ${midpoint} @ Image3 (10-15s): ${ending} ${lock} ${noGrid}`;
+      const words = videoPrompt.split(/\s+/);
+      if (words.length > 130) videoPrompt = words.slice(0, 130).join(' ');
+    }
 
     try {
       const response = await fetch('/api/generate-video', {
@@ -445,7 +702,10 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
       {/* ヘッダー */}
-      <header className="border-b border-[#2a2a3a] bg-[#0d0d14]">
+      <header
+        style={{ paddingRight: output && showStoryboardSidebar ? storyboardSidebarWidth + 20 : undefined }}
+        className={`border-b border-[#2a2a3a] bg-[#0d0d14] transition-[padding] ${showConceptInput ? 'lg:pl-[400px]' : ''}`}
+      >
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
@@ -454,6 +714,22 @@ export default function Home() {
             <div>
               <h1 className="text-lg font-semibold text-white">AI Video Creator</h1>
               <p className="text-xs text-gray-500">コラージュ → Seedance 2.0 動画生成</p>
+            </div>
+            {/* APIステータス */}
+            <div className="flex items-center gap-3 ml-4 px-3 py-1.5 bg-[#0d0d12] border border-[#2a2a3a] rounded-lg">
+              <div className="flex items-center gap-1.5" title={apiStatus?.openai ? 'OpenAI API: 接続中' : 'OpenAI API: 未設定/エラー'}>
+                <span className={`w-2 h-2 rounded-full ${
+                  apiStatus === null ? 'bg-gray-500' : apiStatus.openai ? 'bg-green-500' : 'bg-red-500'
+                } ${apiStatus !== null ? 'animate-pulse' : ''}`} />
+                <span className="text-xs text-gray-300">OpenAI</span>
+              </div>
+              <div className="w-px h-4 bg-[#2a2a3a]" />
+              <div className="flex items-center gap-1.5" title={apiStatus?.fal ? 'fal.ai: 接続中' : 'fal.ai: 未設定/エラー'}>
+                <span className={`w-2 h-2 rounded-full ${
+                  apiStatus === null ? 'bg-gray-500' : apiStatus.fal ? 'bg-green-500' : 'bg-red-500'
+                } ${apiStatus !== null ? 'animate-pulse' : ''}`} />
+                <span className="text-xs text-gray-300">fal.ai</span>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -512,6 +788,144 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {/* モード切替 + ワークフローバー（上部バー直下） */}
+      <div
+        style={{ paddingRight: output && showStoryboardSidebar ? storyboardSidebarWidth + 20 : undefined }}
+        className={`border-b border-[#2a2a3a] bg-[#141420] transition-[padding] ${showConceptInput ? 'lg:pl-[400px]' : ''}`}
+      >
+        <div className="max-w-[1600px] mx-auto px-4 py-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-4">
+            {/* ワークフロー */}
+          {showWorkflow && (
+            <>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 flex-1">
+                {[
+                  { step: 1, text: '画像アップロード or プロンプト入力', desc: '素材を準備' },
+                  { step: 2, text: 'コラージュ画像を生成', desc: '複数シーンを1枚に' },
+                  { step: 3, text: 'ストーリーボードを作成', desc: 'AIがシーンを分析' },
+                  { step: 4, text: 'Seedance 2.0で動画生成', desc: '高品質映像を出力' },
+                ].map((item, idx, arr) => (
+                  <div key={item.step} className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-full bg-purple-600/20 text-purple-400 flex items-center justify-center text-xs font-medium shrink-0">
+                      {item.step}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-white whitespace-nowrap">{item.text}</p>
+                      <p className="text-[10px] text-gray-500 whitespace-nowrap">{item.desc}</p>
+                    </div>
+                    {idx < arr.length - 1 && (
+                      <svg className="w-4 h-4 text-gray-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          </div>
+
+          {/* アクションボタン */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleGenerateGPTCollage}
+              disabled={!input.concept.trim() || isGeneratingGPTCollage}
+              className={`px-4 py-2 text-xs rounded-lg transition-all flex items-center gap-2 ${
+                !input.concept.trim() || isGeneratingGPTCollage
+                  ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
+                  : 'bg-purple-600 text-white hover:bg-purple-500'
+              }`}
+            >
+              {isGeneratingGPTCollage ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  GPTでコラージュ生成中...
+                </>
+              ) : (
+                'GPT Image 2でコラージュを作成'
+              )}
+            </button>
+
+            <button
+              onClick={() => handleAnalyzeCollage()}
+              disabled={isAnalyzingCollage || !collageResult}
+              className={`px-4 py-2 text-xs rounded-lg transition-all flex items-center gap-2 ${
+                isAnalyzingCollage || !collageResult
+                  ? 'bg-indigo-600/30 text-indigo-300/50 cursor-not-allowed'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-500'
+              }`}
+            >
+              {isAnalyzingCollage ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  AI分析中...
+                </>
+              ) : (
+                'ストーリーボードを作成'
+              )}
+            </button>
+
+            <button
+              onClick={handleGenerateVideoFromCollage}
+              disabled={isGeneratingVideo || !collageResult}
+              className={`px-4 py-2 text-xs rounded-lg transition-all flex items-center gap-2 ${
+                isGeneratingVideo || !collageResult
+                  ? 'bg-gradient-to-r from-purple-600/30 to-pink-600/30 text-white/50 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-500 hover:to-pink-500'
+              }`}
+            >
+              {isGeneratingVideo ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Seedance 2.0で動画生成中...
+                </>
+              ) : (
+                'Seedance 2.0で動画を生成'
+              )}
+            </button>
+
+            <div className="w-px h-6 bg-[#2a2a3a] mx-1" />
+
+            <button
+              onClick={() => {
+                if (!output) return;
+                const markdown = generateMarkdown(output);
+                copyToClipboard(markdown, 'full-markdown');
+              }}
+              disabled={!output}
+              className={`px-4 py-2 text-xs rounded-lg transition-all flex items-center gap-2 ${
+                !output
+                  ? 'bg-[#1a1a2a]/50 text-gray-600 cursor-not-allowed'
+                  : 'bg-[#1a1a2a] hover:bg-[#2a2a3a] text-gray-300'
+              }`}
+            >
+              {copiedSection === 'full-markdown' ? (
+                <>
+                  <span className="text-green-500">✓</span>
+                  コピー済み
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  全体をMarkdownでコピー
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Settings Modal */}
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
@@ -606,15 +1020,31 @@ export default function Home() {
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* 左側：入力フォーム */}
-          <div className="space-y-4">
-            {/* モード切替 */}
+      {/* サイドバー開閉ハンドル（常時表示） */}
+      <button
+        onClick={() => setShowConceptInput((v) => !v)}
+        className={`fixed top-1/2 z-40 -translate-y-1/2 bg-[#2a2a3a] hover:bg-[#3a3a4a] text-gray-300 border border-[#2a2a3a] transition-all duration-300 rounded-r-lg px-1.5 py-3 ${
+          showConceptInput ? 'left-[380px]' : 'left-0'
+        }`}
+        title={showConceptInput ? '入力サイドバーを閉じる' : '入力サイドバーを開く'}
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showConceptInput ? 'M15 19l-7-7 7-7' : 'M9 5l7 7-7 7'} />
+        </svg>
+      </button>
+
+      {/* 左サイドバー（コンセプト入力 / 画像アップロード） */}
+      <aside
+        className={`fixed top-0 left-0 h-screen w-[380px] z-30 bg-[#0a0a0f] border-r border-[#2a2a3a] overflow-y-auto pt-[170px] px-4 pb-6 transition-transform duration-300 ${
+          showConceptInput ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="space-y-4">
+            {/* モード切替（サイドバー内） */}
             <div className="flex gap-2">
               <button
                 onClick={() => setViewMode('collage')}
-                className={`flex-1 py-2.5 text-sm rounded-lg transition-all ${
+                className={`flex-1 py-2 text-xs rounded-lg transition-all ${
                   viewMode === 'collage'
                     ? 'bg-purple-600 text-white'
                     : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
@@ -624,7 +1054,7 @@ export default function Home() {
               </button>
               <button
                 onClick={() => setViewMode('upload')}
-                className={`flex-1 py-2.5 text-sm rounded-lg transition-all ${
+                className={`flex-1 py-2 text-xs rounded-lg transition-all ${
                   viewMode === 'upload'
                     ? 'bg-purple-600 text-white'
                     : 'bg-[#1a1a2a] text-gray-400 hover:bg-[#2a2a3a]'
@@ -641,6 +1071,31 @@ export default function Home() {
                   <span className="text-xs text-gray-400">画像をアップロード（最大12枚）</span>
                   <span className="text-xs text-gray-500">{collageImages.length}/12</span>
                 </div>
+
+                {/* AIによるテーマ提案 */}
+                {(isSuggestingTheme || (collageImages.length > 0 && input.concept.trim())) && (
+                  <div className="mb-3 p-3 bg-[#0d0d12] border border-indigo-500/30 rounded-lg">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-indigo-400">AI提案テーマ</span>
+                      {isSuggestingTheme && (
+                        <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                          <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          画像を分析中...
+                        </span>
+                      )}
+                    </div>
+                    <textarea
+                      value={input.concept}
+                      onChange={(e) => setInput({ ...input, concept: e.target.value })}
+                      placeholder={isSuggestingTheme ? '画像を分析しています...' : 'テーマ（編集可能）'}
+                      className="w-full h-16 bg-[#1a1a2a] border border-[#2a2a3a] rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                )}
+
                 <div className="grid grid-cols-4 gap-2 mb-3">
                   {collageImages.map((img, idx) => (
                     <div key={idx} className="relative group aspect-square">
@@ -678,9 +1133,9 @@ export default function Home() {
                 </div>
                 <button
                   onClick={handleGenerateCollage}
-                  disabled={collageImages.length === 0 || isGeneratingCollage}
+                  disabled={collageImages.length === 0 || isGeneratingCollage || isAnalyzingCollage}
                   className={`w-full py-2 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                    collageImages.length === 0 || isGeneratingCollage
+                    collageImages.length === 0 || isGeneratingCollage || isAnalyzingCollage
                       ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
                       : 'bg-purple-600 text-white hover:bg-purple-500'
                   }`}
@@ -693,8 +1148,66 @@ export default function Home() {
                       </svg>
                       コラージュ生成中...
                     </>
+                  ) : isAnalyzingCollage ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      ストーリーボード作成中...
+                    </>
                   ) : (
-                    'コラージュを生成'
+                    'コラージュを生成 → ストーリーボード作成'
+                  )}
+                </button>
+
+                {/* コラージュを直接アップロード */}
+                <div className="mt-3 pt-3 border-t border-[#2a2a3a]">
+                  <label className={`block w-full py-2 text-sm rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    isAnalyzingCollage
+                      ? 'bg-indigo-600/30 text-indigo-300/50 cursor-not-allowed'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-500'
+                  }`}>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M16 8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    {isAnalyzingCollage ? 'ストーリーボード作成中...' : 'コラージュをアップロード → ストーリーボード作成'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadCollageDirect}
+                      disabled={isAnalyzingCollage}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Seedance 2.0で動画化 */}
+                <button
+                  onClick={handleGenerateVideoFromCollage}
+                  disabled={isGeneratingVideo || !collageResult}
+                  className={`w-full mt-3 py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
+                    isGeneratingVideo || !collageResult
+                      ? 'bg-gradient-to-r from-purple-600/30 to-pink-600/30 text-white/50 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-500 hover:to-pink-500'
+                  }`}
+                >
+                  {isGeneratingVideo ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Seedance 2.0で動画生成中...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Seedance 2.0で動画化
+                    </>
                   )}
                 </button>
               </div>
@@ -704,76 +1217,10 @@ export default function Home() {
             <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
               <h2 className="section-title text-base mb-4">コンセプト入力</h2>
 
-              {/* 登場人物設定 */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm text-gray-400">登場人物（最大2人）</label>
-                  {(input.characters || []).length < 2 && (
-                    <button
-                      onClick={addCharacter}
-                      className="px-3 py-1 text-xs bg-[#2a2a3a] text-gray-300 rounded hover:bg-[#3a3a4a] transition-colors flex items-center gap-1"
-                    >
-                      <span>+</span> 追加
-                    </button>
-                  )}
-                </div>
-                {(input.characters || []).length > 0 && (
-                  <div className="space-y-3">
-                    {(input.characters || []).map((char, idx) => (
-                      <div key={idx} className="bg-[#0d0d12] border border-[#2a2a3a] rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-indigo-400">キャラクター {idx + 1}</span>
-                          <button
-                            onClick={() => removeCharacter(idx)}
-                            className="text-red-400 hover:text-red-300 text-xs"
-                          >
-                            削除
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 mb-2">
-                          <input
-                            type="text"
-                            value={char.name}
-                            onChange={(e) => updateCharacter(idx, 'name', e.target.value)}
-                            placeholder="名前"
-                            className="bg-[#1a1a2a] border border-[#2a2a3a] rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                          />
-                          <select
-                            value={char.role || 'メイン'}
-                            onChange={(e) => updateCharacter(idx, 'role', e.target.value)}
-                            className="bg-[#1a1a2a] border border-[#2a2a3a] rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                          >
-                            <option value="メイン">メイン</option>
-                            <option value="サブ">サブ</option>
-                          </select>
-                        </div>
-                        <input
-                          type="text"
-                          value={char.appearance}
-                          onChange={(e) => updateCharacter(idx, 'appearance', e.target.value)}
-                          placeholder="外見（例：黒髪ロング、青い瞳、細身）"
-                          className="w-full bg-[#1a1a2a] border border-[#2a2a3a] rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 mb-2"
-                        />
-                        <input
-                          type="text"
-                          value={char.clothing}
-                          onChange={(e) => updateCharacter(idx, 'clothing', e.target.value)}
-                          placeholder="服装（例：黒いスーツ、白いシャツ）"
-                          className="w-full bg-[#1a1a2a] border border-[#2a2a3a] rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {(input.characters || []).length === 0 && (
-                  <p className="text-xs text-gray-600">キャラクターを追加すると、プロンプトに反映されます</p>
-                )}
-              </div>
-
               {/* 参照画像 */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm text-gray-400">参照画像</label>
+                  <label className="block text-sm text-gray-400">参照背景画像</label>
                   <button
                     onClick={() => setShowReferenceImages((v) => !v)}
                     className="px-3 py-1 text-xs bg-[#2a2a3a] text-gray-300 rounded hover:bg-[#3a3a4a] transition-colors flex items-center gap-1"
@@ -933,96 +1380,22 @@ export default function Home() {
                 />
               </div>
 
-              {/* GPT Image 2でコラージュを作成（独立ボタン） */}
-              <button
-                onClick={handleGenerateGPTCollage}
-                disabled={!collagePrompt.trim() || isGeneratingGPTCollage}
-                className={`w-full mb-3 py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                  !collagePrompt.trim() || isGeneratingGPTCollage
-                    ? 'bg-purple-600/30 text-purple-300/50 cursor-not-allowed'
-                    : 'bg-purple-600 text-white hover:bg-purple-500'
-                }`}
-              >
-                {isGeneratingGPTCollage ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    GPTでコラージュ生成中...
-                  </>
-                ) : (
-                  'GPT Image 2でコラージュを作成'
-                )}
-              </button>
-
-              {/* ストーリーボードを作成ボタン */}
-              <button
-                onClick={handleAnalyzeCollage}
-                disabled={isAnalyzingCollage || !collageResult}
-                className={`w-full py-2.5 text-sm rounded-lg transition-all flex items-center justify-center gap-2 ${
-                  isAnalyzingCollage || !collageResult
-                    ? 'bg-indigo-600/30 text-indigo-300/50 cursor-not-allowed'
-                    : 'bg-indigo-600 text-white hover:bg-indigo-500'
-                }`}
-              >
-                {isAnalyzingCollage ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    AIがコラージュを分析中...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    ストーリーボードを作成
-                  </>
-                )}
-              </button>
-              {!collageResult && (
-                <p className="text-xs text-gray-500 mt-1 text-center">
-                  ※ 先にコラージュを作成してください
-                </p>
-              )}
-
             </div>
             )}
 
-            {/* ワークフロー説明 */}
-            {showWorkflow && (
-              <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-                <h3 className="text-sm font-medium text-gray-300 mb-3">ワークフロー</h3>
-                <div className="space-y-2">
-                  {[
-                    { step: 1, text: '画像アップロード or プロンプト入力', desc: '素材を準備' },
-                    { step: 2, text: 'コラージュ画像を生成', desc: '複数シーンを1枚に' },
-                    { step: 3, text: 'ストーリーボードを作成', desc: 'AIがシーンを分析' },
-                    { step: 4, text: 'Seedance 2.0で動画生成', desc: '高品質映像を出力' },
-                  ].map((item) => (
-                    <div key={item.step} className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-purple-600/20 text-purple-400 flex items-center justify-center text-xs font-medium">
-                        {item.step}
-                      </div>
-                      <div>
-                        <p className="text-sm text-white">{item.text}</p>
-                        <p className="text-xs text-gray-500">{item.desc}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+        </div>
+      </aside>
 
-          {/* 右側：出力表示 */}
+      <main
+        style={{ paddingRight: output && showStoryboardSidebar ? storyboardSidebarWidth + 20 : undefined }}
+        className={`max-w-[1600px] mx-auto px-4 py-6 transition-[padding] ${showConceptInput ? 'lg:pl-[400px]' : ''}`}
+      >
+        <div className={`grid grid-cols-1 gap-6 min-w-0 ${output ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
+          {/* 中央列：コラージュ / 動画 / プレースホルダー */}
           <div className="space-y-4">
             {/* 生成された動画（ストーリーボードがなくても表示） */}
             {generatedVideo && (
-              <div className="bg-[#141420] rounded-xl border border-purple-500/50 p-5">
+              <div className="bg-[#141420] rounded-xl border border-purple-500/50 p-5 h-[640px] overflow-y-auto">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="section-title text-sm mb-0 text-purple-400">生成された動画</h3>
                   <a
@@ -1048,7 +1421,44 @@ export default function Home() {
               </div>
             )}
 
-            {!generatedVideo && !collageResult ? (
+            {/* 生成されたコラージュ */}
+            {collageResult && (
+              <div className="bg-[#141420] rounded-xl border border-purple-500/50 p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="section-title text-sm mb-0 text-purple-400">コラージュ</h3>
+                  <a
+                    href={collageResult}
+                    download="generated-collage.png"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-500 transition-colors flex items-center gap-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    ダウンロード
+                  </a>
+                </div>
+                <img
+                  src={collageResult}
+                  alt="Generated collage"
+                  className="w-full rounded-lg border border-purple-500/30"
+                />
+                {storyboardPrompt && (
+                  <details className="mt-3 bg-[#1a1a2a] rounded-lg border border-indigo-500/30 group">
+                    <summary className="cursor-pointer p-3 select-none flex items-center justify-between">
+                      <span className="text-xs text-indigo-400">ストーリーボードプロンプト</span>
+                      <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </summary>
+                    <p className="px-3 pb-3 text-xs text-gray-300 leading-relaxed">{storyboardPrompt}</p>
+                  </details>
+                )}
+              </div>
+            )}
+
+            {!generatedVideo && !collageResult && (
               <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-8 text-center">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#1a1a2a] flex items-center justify-center">
                   <svg className="w-8 h-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1058,8 +1468,12 @@ export default function Home() {
                 <p className="text-gray-500">左側でコラージュを作成してください</p>
                 <p className="text-xs text-gray-600 mt-2">画像アップロードまたはプロンプト入力で生成</p>
               </div>
-            ) : output ? (
-              <div className="space-y-4 max-h-[calc(100vh-180px)] overflow-y-auto pr-2">
+            )}
+          </div>
+
+          {/* 右列：解析結果 (output) */}
+          {output && (
+            <div className="space-y-4 max-h-[calc(100vh-180px)] overflow-y-auto pr-2">
                 {/* 著作権警告バナー */}
                 {copyrightWarnings.length > 0 && (
                   <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-4">
@@ -1077,43 +1491,22 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 1. クリエイティブな解釈 */}
-                <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="section-title text-sm mb-0">1. クリエイティブな解釈</h3>
-                    <CopyButton text={output.creativeInterpretation} section="interpretation" />
-                  </div>
-                  <p className="text-gray-300 text-sm leading-relaxed">{output.creativeInterpretation}</p>
-                </div>
-
-                {/* 2. 15秒ショットプラン */}
-                <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-                  <h3 className="section-title text-sm">2. 15秒ショットプラン</h3>
-                  <div className="space-y-3">
-                    {output.shotPlan.map((shot, idx) => (
-                      <div key={idx} className={`shot-card-${idx + 1} rounded-lg p-4`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-gray-400">{shot.timeRange}</span>
-                            <span className="px-2 py-0.5 bg-white/10 rounded text-xs text-white">{shot.beatName}</span>
-                          </div>
-                          <div className="flex gap-2 text-xs text-gray-500">
-                            <span>{shot.shotType}</span>
-                            <span>|</span>
-                            <span>{shot.cameraMovement}</span>
-                          </div>
-                        </div>
-                        <p className="text-sm text-gray-200">{shot.action}</p>
-                        <p className="text-xs text-gray-500 mt-1">{shot.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
                 {/* 3. GPT Image 2 キーフレームプロンプト */}
-                <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="section-title text-sm mb-0">3. GPT Image 2 キーフレームプロンプト</h3>
+                <details open className="bg-[#141420] rounded-xl border border-[#2a2a3a] group h-[640px] overflow-y-auto">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">キーフレーム</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-5 pb-5">
+                  <div className="flex items-center justify-end gap-2 mb-3">
+                    <button
+                      onClick={() => setShowKeyframePrompts((v) => !v)}
+                      className="px-3 py-1.5 text-xs bg-[#2a2a3a] hover:bg-[#3a3a4a] text-gray-300 rounded transition-colors"
+                    >
+                      {showKeyframePrompts ? 'プロンプト非表示' : 'プロンプト表示'}
+                    </button>
                     <button
                       onClick={handleGenerateImages}
                       disabled={isGeneratingImages}
@@ -1142,20 +1535,22 @@ export default function Home() {
                     </button>
                   </div>
 
-                  {/* 生成された画像の表示 */}
-                  {generatedImages.length > 0 && (
-                    <div className="mb-4">
-                      <div className={`grid gap-3 ${input.aspectRatio === '9:16' ? 'grid-cols-3' : 'grid-cols-1'}`}>
-                        {generatedImages.map((img, idx) => (
-                          <div key={idx} className="relative">
-                            {img.url ? (
+                  {/* キーフレーム: 画像とプロンプトを横並び */}
+                  <div className="space-y-3">
+                    {output.keyframePrompts.map((kf, idx) => {
+                      const img = generatedImages[idx];
+                      return (
+                        <div key={idx} className="flex gap-3 items-start">
+                          {/* 左: 画像 */}
+                          <div className={`${showKeyframePrompts ? 'w-32 shrink-0' : 'flex-1'} relative`}>
+                            {img?.url ? (
                               <div className="relative group">
                                 <img
                                   src={img.url}
                                   alt={`Generated keyframe ${idx + 1}`}
                                   className="w-full rounded-lg border border-[#2a2a3a]"
                                 />
-                                <div className="absolute top-2 left-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
+                                <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[10px] text-white">
                                   Image {idx + 1}
                                 </div>
                                 <a
@@ -1163,85 +1558,96 @@ export default function Home() {
                                   download={`keyframe-${idx + 1}.png`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="absolute top-2 right-2 p-1.5 bg-black/70 rounded hover:bg-black/90 transition-colors opacity-0 group-hover:opacity-100"
+                                  className="absolute top-1 right-1 p-1 bg-black/70 rounded hover:bg-black/90 transition-colors opacity-0 group-hover:opacity-100"
                                   title="ダウンロード"
                                 >
-                                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                   </svg>
                                 </a>
                               </div>
-                            ) : (
+                            ) : img && img.url === '' ? (
                               <div className="aspect-video bg-red-900/20 border border-red-500/30 rounded-lg flex items-center justify-center">
-                                <span className="text-xs text-red-400">生成失敗</span>
+                                <span className="text-[10px] text-red-400">生成失敗</span>
+                              </div>
+                            ) : (
+                              <div className="aspect-video bg-[#0d0d12] border border-dashed border-[#2a2a3a] rounded-lg flex items-center justify-center">
+                                <span className="text-[10px] text-gray-600">Image {idx + 1}</span>
                               </div>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    {output.keyframePrompts.map((kf, idx) => (
-                      <div key={idx} className="prompt-block p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs text-indigo-400">Image {kf.shotNumber}</span>
-                          <CopyButton text={kf.prompt} section={`keyframe-${idx}`} />
+                          {/* 右: プロンプト */}
+                          {showKeyframePrompts && (
+                            <div className="prompt-block p-3 flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-indigo-400">Image {kf.shotNumber}</span>
+                                <CopyButton text={kf.prompt} section={`keyframe-${idx}`} />
+                              </div>
+                              <p className="text-xs text-gray-300 leading-relaxed">{kf.prompt}</p>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-xs text-gray-300 leading-relaxed">{kf.prompt}</p>
+                      );
+                    })}
+                  </div>
+                  </div>
+                </details>
+
+                {/* 1. クリエイティブな解釈 */}
+                <details className="bg-[#141420] rounded-xl border border-[#2a2a3a] group">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">1. クリエイティブな解釈</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-5 pb-5">
+                    <div className="flex items-center justify-end mb-3">
+                      <CopyButton text={output.creativeInterpretation} section="interpretation" />
+                    </div>
+                    <p className="text-gray-300 text-sm leading-relaxed">{output.creativeInterpretation}</p>
+                  </div>
+                </details>
+
+                {/* 2. 15秒ショットプラン */}
+                <details className="bg-[#141420] rounded-xl border border-[#2a2a3a] group">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">2. 15秒ショットプラン</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-5 pb-5 space-y-3">
+                    {output.shotPlan.map((shot, idx) => (
+                      <div key={idx} className={`shot-card-${idx + 1} rounded-lg p-4`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-gray-400">{shot.timeRange}</span>
+                            <span className="px-2 py-0.5 bg-white/10 rounded text-xs text-white">{shot.beatName}</span>
+                          </div>
+                          <div className="flex gap-2 text-xs text-gray-500">
+                            <span>{shot.shotType}</span>
+                            <span>|</span>
+                            <span>{shot.cameraMovement}</span>
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-200">{shot.action}</p>
+                        <p className="text-xs text-gray-500 mt-1">{shot.description}</p>
                       </div>
                     ))}
                   </div>
-                </div>
-
-                {/* 4. ストーリーボードシート（ビジュアルプレビュー） */}
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="section-title text-sm mb-0">4. ストーリーボードシート</h3>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setPreviewMode(previewMode === '6panel' ? '3panel' : '6panel')}
-                        className="px-2 py-1 text-xs bg-[#2a2a3a] text-gray-300 rounded hover:bg-[#3a3a4a] transition-colors"
-                      >
-                        {previewMode === '6panel' ? '3パネル' : '6パネル'}
-                      </button>
-                      <CopyButton text={output.storyboardSheetPrompt} section="storyboard" />
-                    </div>
-                  </div>
-                  {previewMode === '6panel' ? (
-                    <StoryboardPreview
-                      output={output}
-                      title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
-                      genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
-                      tagline="The story unfolds in 15 seconds."
-                      generatedImages={generatedImages}
-                    />
-                  ) : (
-                    <StoryboardPreview3Panel
-                      output={output}
-                      title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
-                      genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
-                      tagline="The story unfolds in 15 seconds."
-                      generatedImages={generatedImages}
-                    />
-                  )}
-                  {/* プロンプト表示（折りたたみ） */}
-                  <details className="mt-3">
-                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400">
-                      画像生成用プロンプトを表示
-                    </summary>
-                    <div className="prompt-block p-3 mt-2">
-                      <p className="text-xs text-gray-300 leading-relaxed">{output.storyboardSheetPrompt}</p>
-                    </div>
-                  </details>
-                </div>
+                </details>
 
                 {/* 5. SEEDANCE 2.0 最終ビデオプロンプト */}
-                <div className="bg-[#141420] rounded-xl border border-indigo-500/30 p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="section-title text-sm mb-0">5. SEEDANCE 2.0 最終プロンプト</h3>
-                    <div className="flex gap-2">
+                <details className="bg-[#141420] rounded-xl border border-indigo-500/30 group">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">3. SEEDANCE 2.0 最終プロンプト</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-5 pb-5">
+                    <div className="flex items-center justify-end gap-2 mb-3">
                       <CopyButton text={output.seedancePrompt} section="seedance" />
                       <button
                         onClick={handleGenerateVideo}
@@ -1271,49 +1677,26 @@ export default function Home() {
                         )}
                       </button>
                     </div>
-                  </div>
-
-                  {/* 生成された動画の表示 */}
-                  {generatedVideo && (
-                    <div className="mb-4">
-                      <video
-                        src={generatedVideo}
-                        controls
-                        autoPlay
-                        loop
-                        className="w-full rounded-lg border border-indigo-500/30"
-                      />
-                      <div className="flex justify-end mt-2">
-                        <a
-                          href={generatedVideo}
-                          download="generated-video.mp4"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 text-xs bg-[#2a2a3a] text-gray-300 rounded hover:bg-[#3a3a4a] transition-colors flex items-center gap-1"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          ダウンロード
-                        </a>
-                      </div>
+                    <div className="bg-gradient-to-br from-indigo-900/20 to-purple-900/20 border border-indigo-500/20 rounded-lg p-4">
+                      <p className="text-sm text-gray-200 leading-relaxed font-mono">{output.seedancePrompt}</p>
                     </div>
-                  )}
-
-                  <div className="bg-gradient-to-br from-indigo-900/20 to-purple-900/20 border border-indigo-500/20 rounded-lg p-4">
-                    <p className="text-sm text-gray-200 leading-relaxed font-mono">{output.seedancePrompt}</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      {generatedImages.length === 0
+                        ? '※ 先に「画像を生成」ボタンで画像を生成してください'
+                        : '※ 生成した画像を使って動画を生成します'}
+                    </p>
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    {generatedImages.length === 0
-                      ? '※ 先に「画像を生成」ボタンで画像を生成してください'
-                      : '※ 生成した画像を使って動画を生成します'}
-                  </p>
-                </div>
+                </details>
 
                 {/* 6. 一貫性ロック */}
-                <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-                  <h3 className="section-title text-sm">6. 一貫性ロック（Identity Lock）</h3>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                <details className="bg-[#141420] rounded-xl border border-[#2a2a3a] group">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">4. 一貫性ロック（Identity Lock）</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-5 pb-5 grid grid-cols-2 gap-3 text-sm">
                     <div className="bg-[#0d0d12] rounded-lg p-3">
                       <p className="text-xs text-gray-500 mb-1">被写体</p>
                       <p className="text-gray-300">{output.identityLock.subject}</p>
@@ -1340,12 +1723,17 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </details>
 
                 {/* 7. 肯定的な制約 */}
-                <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
-                  <h3 className="section-title text-sm">7. 肯定的な制約</h3>
-                  <ul className="space-y-2">
+                <details className="bg-[#141420] rounded-xl border border-[#2a2a3a] group">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">5. 肯定的な制約</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <ul className="px-5 pb-5 space-y-2">
                     {output.positiveConstraints.map((constraint, idx) => (
                       <li key={idx} className="flex items-start gap-2 text-sm">
                         <span className="text-green-500 mt-0.5">✓</span>
@@ -1353,12 +1741,17 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </details>
 
                 {/* 8. アドバイス/推奨事項 */}
-                <div className="bg-[#141420] rounded-xl border border-amber-500/30 p-5">
-                  <h3 className="section-title text-sm">8. アドバイス / 推奨事項</h3>
-                  <ul className="space-y-2">
+                <details className="bg-[#141420] rounded-xl border border-amber-500/30 group">
+                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
+                    <h3 className="section-title text-sm mb-0">6. アドバイス / 推奨事項</h3>
+                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <ul className="px-5 pb-5 space-y-2">
                     {output.recommendations.map((rec, idx) => (
                       <li key={idx} className="flex items-start gap-2 text-sm">
                         <span className="text-amber-500 mt-0.5">💡</span>
@@ -1366,46 +1759,92 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
-                </div>
+                </details>
 
-                {/* Markdown出力ボタン */}
-                <button
-                  onClick={() => {
-                    const markdown = generateMarkdown(output);
-                    copyToClipboard(markdown, 'full-markdown');
-                  }}
-                  className="w-full py-3 bg-[#1a1a2a] hover:bg-[#2a2a3a] border border-[#2a2a3a] rounded-lg text-gray-300 transition-colors flex items-center justify-center gap-2"
-                >
-                  {copiedSection === 'full-markdown' ? (
-                    <>
-                      <span className="text-green-500">✓</span>
-                      Markdownをコピーしました
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      全体をMarkdownでコピー
-                    </>
-                  )}
-                </button>
-
-                {/* 履歴に保存ボタン */}
-                <button
-                  onClick={saveToHistory}
-                  className="w-full py-3 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-lg text-indigo-300 transition-colors flex items-center justify-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  履歴に保存
-                </button>
               </div>
-            ) : null}
-          </div>
+          )}
         </div>
+
       </main>
+
+      {/* 右サイドバー: 画像付きストーリーボード */}
+      {output && (
+        <>
+          {/* 開閉ハンドル */}
+          <button
+            onClick={() => setShowStoryboardSidebar((v) => !v)}
+            style={{ right: showStoryboardSidebar ? storyboardSidebarWidth : 0 }}
+            className="fixed top-1/2 z-40 -translate-y-1/2 bg-[#2a2a3a] hover:bg-[#3a3a4a] text-gray-300 border border-[#2a2a3a] transition-[background-color] rounded-l-lg px-1.5 py-3"
+            title={showStoryboardSidebar ? 'ストーリーボードを閉じる' : 'ストーリーボードを開く'}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showStoryboardSidebar ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7'} />
+            </svg>
+          </button>
+
+          {/* リサイズハンドル */}
+          {showStoryboardSidebar && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                isResizingRef.current = true;
+                document.body.style.cursor = 'ew-resize';
+                document.body.style.userSelect = 'none';
+              }}
+              style={{ right: storyboardSidebarWidth - 2 }}
+              className="fixed top-0 h-screen w-1 z-40 cursor-ew-resize bg-transparent hover:bg-purple-500/40 transition-colors"
+              title="ドラッグでサイズ変更"
+            />
+          )}
+
+          <aside
+            style={{ width: storyboardSidebarWidth }}
+            className={`fixed top-0 right-0 h-screen z-30 bg-[#0a0a0f] border-l border-[#2a2a3a] overflow-y-auto pt-[170px] px-4 pb-6 transition-transform duration-300 ${
+              showStoryboardSidebar ? 'translate-x-0' : 'translate-x-full'
+            }`}
+          >
+            <div className="bg-[#141420] rounded-xl border border-[#2a2a3a] p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="section-title text-base mb-0">画像付きストーリーボード</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPreviewMode(previewMode === '6panel' ? '3panel' : '6panel')}
+                    className="px-3 py-1.5 text-xs bg-[#2a2a3a] text-gray-300 rounded hover:bg-[#3a3a4a] transition-colors"
+                  >
+                    {previewMode === '6panel' ? '3パネル' : '6パネル'}
+                  </button>
+                </div>
+              </div>
+              {isAnalyzingCollage && (
+                <div className="mb-3 px-3 py-1.5 text-xs bg-indigo-600/20 text-indigo-300 rounded flex items-center gap-2">
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  画像生成中 ({generatedImages.length}/{output.keyframePrompts.length})
+                </div>
+              )}
+              {previewMode === '6panel' ? (
+                <StoryboardPreview
+                  output={output}
+                  title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
+                  genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
+                  tagline="The story unfolds in 15 seconds."
+                  generatedImages={generatedImages}
+                />
+              ) : (
+                <StoryboardPreview3Panel
+                  output={output}
+                  title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
+                  genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
+                  tagline="The story unfolds in 15 seconds."
+                  generatedImages={generatedImages}
+                />
+              )}
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   );
 }
