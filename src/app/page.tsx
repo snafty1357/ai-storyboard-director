@@ -359,12 +359,45 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [output, generatedImages, generatedVideo, collageResult, durations]);
 
+  // 履歴エントリのoutputを検証し、不足フィールドをデフォルト値で補完
+  const sanitizeOutput = (output: StoryboardOutput | null | undefined): StoryboardOutput | null => {
+    if (!output) return null;
+    return {
+      creativeInterpretation: output.creativeInterpretation || '',
+      shotPlan: Array.isArray(output.shotPlan) ? output.shotPlan : [],
+      keyframePrompts: Array.isArray(output.keyframePrompts) ? output.keyframePrompts : [],
+      storyboardSheetPrompt: output.storyboardSheetPrompt || '',
+      seedancePrompt: output.seedancePrompt || '',
+      identityLock: {
+        subject: output.identityLock?.subject || '',
+        costume: output.identityLock?.costume || '',
+        colorPalette: Array.isArray(output.identityLock?.colorPalette) ? output.identityLock.colorPalette : [],
+        environment: output.identityLock?.environment || '',
+      },
+      positiveConstraints: Array.isArray(output.positiveConstraints) ? output.positiveConstraints : [],
+      recommendations: Array.isArray(output.recommendations) ? output.recommendations : [],
+    };
+  };
+
+  // 履歴エントリのinputを検証し、不足フィールドをデフォルト値で補完
+  const sanitizeInput = (input: StoryboardInput | null | undefined): StoryboardInput => {
+    return {
+      concept: input?.concept || '',
+      genre: input?.genre || 'cinematic',
+      mood: input?.mood || '',
+      aspectRatio: input?.aspectRatio || '16:9',
+      additionalNotes: input?.additionalNotes || '',
+      characters: Array.isArray(input?.characters) ? input.characters : [],
+      referenceImages: Array.isArray(input?.referenceImages) ? input.referenceImages : [],
+    };
+  };
+
   // 履歴から読み込み
   const loadFromHistory = (entry: HistoryEntry) => {
     // 自動保存をスキップするためフラグを立てる
     isLoadingFromHistoryRef.current = true;
-    setInput(entry.input);
-    setOutput(entry.output);
+    setInput(sanitizeInput(entry.input));
+    setOutput(sanitizeOutput(entry.output));
     setGeneratedImages(entry.generatedImages || []);
     setGeneratedVideo(entry.generatedVideo || null);
     setCollageResult(entry.collageResult || null);
@@ -1163,7 +1196,7 @@ export default function Home() {
                     .filter((e) => {
                       if (!historySearch.trim()) return true;
                       const q = historySearch.trim().toLowerCase();
-                      return e.id.toLowerCase().includes(q) || e.input.concept.toLowerCase().includes(q);
+                      return e.id?.toLowerCase().includes(q) || e.input?.concept?.toLowerCase().includes(q);
                     })
                     .map((entry) => (
                     <div
@@ -1183,12 +1216,12 @@ export default function Home() {
                             {entry.generatedVideo && <span className="text-[10px] px-1.5 py-0.5 bg-pink-600/20 text-pink-400 rounded">動画</span>}
                           </div>
                           <p className="text-sm text-white truncate mb-1">
-                            {entry.input.concept.slice(0, 50)}...
+                            {(entry.input?.concept || '(コンセプトなし)').slice(0, 50)}...
                           </p>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             <span>{new Date(entry.timestamp).toLocaleString('ja-JP')}</span>
                             <span>|</span>
-                            <span>{entry.input.aspectRatio}</span>
+                            <span>{entry.input?.aspectRatio || '16:9'}</span>
                             {entry.cost && (
                               <>
                                 <span>|</span>
