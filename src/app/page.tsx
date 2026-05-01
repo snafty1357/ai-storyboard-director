@@ -94,41 +94,94 @@ export default function Home() {
   const isLoadingFromHistoryRef = useRef(false);
   const [apiStatus, setApiStatus] = useState<{ openai: boolean; fal: boolean } | null>(null);
 
+  // 履歴エントリを検証・サニタイズするヘルパー
+  const sanitizeHistoryEntry = (r: Record<string, unknown>): HistoryEntry | null => {
+    try {
+      if (!r || !r.id) return null;
+      const input = r.input as StoryboardInput | null | undefined;
+      const output = r.output as StoryboardOutput | null | undefined;
+      return {
+        id: String(r.id),
+        timestamp: r.created_at ? new Date(r.created_at as string).getTime() : (r.timestamp as number) || Date.now(),
+        input: {
+          concept: input?.concept || '',
+          genre: input?.genre || 'cinematic',
+          mood: input?.mood || '',
+          aspectRatio: input?.aspectRatio || '16:9',
+          additionalNotes: input?.additionalNotes || '',
+          characters: Array.isArray(input?.characters) ? input.characters : [],
+          referenceImages: Array.isArray(input?.referenceImages) ? input.referenceImages : [],
+        },
+        output: output ? {
+          creativeInterpretation: output.creativeInterpretation || '',
+          shotPlan: Array.isArray(output.shotPlan) ? output.shotPlan : [],
+          keyframePrompts: Array.isArray(output.keyframePrompts) ? output.keyframePrompts : [],
+          storyboardSheetPrompt: output.storyboardSheetPrompt || '',
+          seedancePrompt: output.seedancePrompt || '',
+          identityLock: {
+            subject: output.identityLock?.subject || '',
+            costume: output.identityLock?.costume || '',
+            colorPalette: Array.isArray(output.identityLock?.colorPalette) ? output.identityLock.colorPalette : [],
+            environment: output.identityLock?.environment || '',
+          },
+          positiveConstraints: Array.isArray(output.positiveConstraints) ? output.positiveConstraints : [],
+          recommendations: Array.isArray(output.recommendations) ? output.recommendations : [],
+        } : {
+          creativeInterpretation: '',
+          shotPlan: [],
+          keyframePrompts: [],
+          storyboardSheetPrompt: '',
+          seedancePrompt: '',
+          identityLock: { subject: '', costume: '', colorPalette: [], environment: '' },
+          positiveConstraints: [],
+          recommendations: [],
+        },
+        generatedImages: Array.isArray(r.generated_images || r.generatedImages) ? (r.generated_images || r.generatedImages) as { url: string; prompt: string }[] : undefined,
+        generatedVideo: (r.generated_video || r.generatedVideo) as string | undefined,
+        collageResult: (r.collage_result || r.collageResult) as string | undefined,
+        cost: (r.cost) as HistoryEntry['cost'] | undefined,
+        durations: (r.durations) as HistoryEntry['durations'] | undefined,
+      };
+    } catch (e) {
+      console.error('Failed to sanitize history entry:', e);
+      return null;
+    }
+  };
+
   // 履歴を Supabase から読み込み（fallback: localStorage）
   useEffect(() => {
     const load = async () => {
-      const supabase = getBrowserSupabase();
-      if (supabase) {
-        const { data, error } = await supabase
-          .from('history')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100);
-        if (!error && data) {
-          const entries: HistoryEntry[] = data.map((r) => ({
-            id: r.id,
-            timestamp: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
-            input: r.input,
-            output: r.output,
-            generatedImages: r.generated_images || undefined,
-            generatedVideo: r.generated_video || undefined,
-            collageResult: r.collage_result || undefined,
-            cost: r.cost || undefined,
-            durations: r.durations || undefined,
-          }));
-          setHistory(entries);
-          return;
+      try {
+        const supabase = getBrowserSupabase();
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('history')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(100);
+          if (!error && data) {
+            const entries = data
+              .map((r) => sanitizeHistoryEntry(r))
+              .filter((e): e is HistoryEntry => e !== null);
+            setHistory(entries);
+            return;
+          }
+          if (error) console.error('Supabase history load failed:', error);
         }
-        if (error) console.error('Supabase history load failed:', error);
-      }
-      // フォールバック: localStorage
-      const saved = localStorage.getItem('storyboard-history');
-      if (saved) {
-        try {
-          setHistory(JSON.parse(saved));
-        } catch (e) {
-          console.error('Failed to load history:', e);
+        // フォールバック: localStorage
+        const saved = localStorage.getItem('storyboard-history');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const entries = parsed
+              .map((r: Record<string, unknown>) => sanitizeHistoryEntry(r))
+              .filter((e): e is HistoryEntry => e !== null);
+            setHistory(entries);
+          }
         }
+      } catch (e) {
+        console.error('Failed to load history:', e);
+        setHistory([]);
       }
     };
     load();
