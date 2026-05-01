@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { uploadToStorage } from '@/lib/supabase';
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
@@ -100,10 +101,23 @@ export async function POST(request: NextRequest) {
     const data = await response.json();
     const imageData = data.data[0];
 
-    // base64の場合はdata URLに変換
-    let imageUrl = imageData.url;
+    // 画像URLを決定: 可能ならSupabase Storageにアップロード、失敗時はdata URLにフォールバック
+    let imageUrl: string = imageData.url || '';
     if (imageData.b64_json) {
-      imageUrl = `data:image/png;base64,${imageData.b64_json}`;
+      try {
+        const buf = Buffer.from(imageData.b64_json, 'base64');
+        const isCollage = refs.length > 0 && (prompt as string).toLowerCase().includes('collage');
+        const bucket: 'collages' | 'keyframes' = isCollage ? 'collages' : 'keyframes';
+        const uploaded = await uploadToStorage(bucket, 'gen', buf, 'image/png');
+        if (uploaded) {
+          imageUrl = uploaded;
+        } else {
+          imageUrl = `data:image/png;base64,${imageData.b64_json}`;
+        }
+      } catch (err) {
+        console.error('Storage upload failed, falling back to data URL:', err);
+        imageUrl = `data:image/png;base64,${imageData.b64_json}`;
+      }
     }
 
     return NextResponse.json({

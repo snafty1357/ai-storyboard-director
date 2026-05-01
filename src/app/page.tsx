@@ -5,6 +5,7 @@ import type { StoryboardInput, StoryboardOutput, Genre, AspectRatio, Character, 
 import { StoryboardPreview, StoryboardPreview3Panel } from '@/components/StoryboardPreview';
 import { generateStoryboard } from '@/lib/promptEngine';
 import { getCopyrightWarnings } from '@/lib/copyrightFilter';
+import { getBrowserSupabase } from '@/lib/supabase';
 import { SettingsModal } from '@/components/SettingsModal';
 import { PromptsModal } from '@/components/PromptsModal';
 
@@ -92,17 +93,70 @@ export default function Home() {
   const isResizingRef = useRef(false);
   const [apiStatus, setApiStatus] = useState<{ openai: boolean; fal: boolean } | null>(null);
 
-  // 履歴をlocalStorageから読み込み
+  // 履歴を Supabase から読み込み（fallback: localStorage）
   useEffect(() => {
-    const saved = localStorage.getItem('storyboard-history');
-    if (saved) {
-      try {
-        setHistory(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load history:', e);
+    const load = async () => {
+      const supabase = getBrowserSupabase();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('history')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (!error && data) {
+          const entries: HistoryEntry[] = data.map((r) => ({
+            id: r.id,
+            timestamp: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+            input: r.input,
+            output: r.output,
+            generatedImages: r.generated_images || undefined,
+            generatedVideo: r.generated_video || undefined,
+            collageResult: r.collage_result || undefined,
+            cost: r.cost || undefined,
+            durations: r.durations || undefined,
+          }));
+          setHistory(entries);
+          return;
+        }
+        if (error) console.error('Supabase history load failed:', error);
       }
-    }
+      // フォールバック: localStorage
+      const saved = localStorage.getItem('storyboard-history');
+      if (saved) {
+        try {
+          setHistory(JSON.parse(saved));
+        } catch (e) {
+          console.error('Failed to load history:', e);
+        }
+      }
+    };
+    load();
   }, []);
+
+  // Supabaseへのupsertヘルパー
+  const upsertHistoryToDb = async (entry: HistoryEntry) => {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    const { error } = await supabase.from('history').upsert({
+      id: entry.id,
+      created_at: new Date(entry.timestamp).toISOString(),
+      input: entry.input,
+      output: entry.output,
+      generated_images: entry.generatedImages || null,
+      generated_video: entry.generatedVideo || null,
+      collage_result: entry.collageResult || null,
+      cost: entry.cost || null,
+      durations: entry.durations || null,
+    });
+    if (error) console.error('Supabase upsert error:', error);
+  };
+
+  const deleteHistoryFromDb = async (id: string) => {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    const { error } = await supabase.from('history').delete().eq('id', id);
+    if (error) console.error('Supabase delete error:', error);
+  };
 
   // ストーリーボードサイドバーのリサイズ
   useEffect(() => {
@@ -126,6 +180,41 @@ export default function Home() {
       window.removeEventListener('mouseup', handleUp);
     };
   }, []);
+
+  // 画像を圧縮（リサイズ + JPEG化）してdata URLを返す
+  const compressImageFile = (file: File, maxDim = 1280, quality = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const src = reader.result as string;
+        const img = new window.Image();
+        img.onload = () => {
+          let { width, height } = img;
+          const longest = Math.max(width, height);
+          if (longest > maxDim) {
+            if (width >= height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('canvas ctx unavailable'));
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = reject;
+        img.src = src;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
   // APIステータスを取得
   useEffect(() => {
@@ -227,6 +316,7 @@ export default function Home() {
       const newest = prev[0];
       const sameSession = newest && newest.output.creativeInterpretation === output.creativeInterpretation && newest.input.concept === input.concept;
       let next: HistoryEntry[];
+      let entryToPersist: HistoryEntry;
       if (sameSession) {
         const updated: HistoryEntry = {
           ...newest,
@@ -238,6 +328,7 @@ export default function Home() {
           cost,
           durations: durationsSnapshot,
         };
+        entryToPersist = updated;
         next = [updated, ...prev.slice(1)];
       } else {
         const created: HistoryEntry = {
@@ -251,9 +342,12 @@ export default function Home() {
           cost,
           durations: durationsSnapshot,
         };
+        entryToPersist = created;
         next = [created, ...prev].slice(0, 30);
       }
       localStorage.setItem('storyboard-history', JSON.stringify(next));
+      // Supabase へ非同期upsert（待たない）
+      upsertHistoryToDb(entryToPersist);
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -273,6 +367,7 @@ export default function Home() {
     const newHistory = history.filter(h => h.id !== id);
     setHistory(newHistory);
     localStorage.setItem('storyboard-history', JSON.stringify(newHistory));
+    deleteHistoryFromDb(id);
   };
 
   const handleGenerate = async () => {
@@ -365,17 +460,17 @@ export default function Home() {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const url = event.target?.result as string;
+    Array.from(files).forEach(async (file) => {
+      try {
+        const url = await compressImageFile(file);
         const newImage: ReferenceImage = { url, description: file.name };
         setInput((prev) => ({
           ...prev,
           referenceImages: [...(prev.referenceImages || []), newImage],
         }));
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Failed to compress reference image:', err);
+      }
     });
   };
 
@@ -391,14 +486,14 @@ export default function Home() {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
+    Array.from(files).forEach(async (file) => {
       if (collageImages.length >= 12) return;
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const url = event.target?.result as string;
+      try {
+        const url = await compressImageFile(file);
         setCollageImages((prev) => [...prev, url].slice(0, 12));
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Failed to compress collage image:', err);
+      }
     });
   };
 
@@ -446,16 +541,17 @@ export default function Home() {
   };
 
   // 単一コラージュ画像を直接アップロード → ストーリーボード作成
-  const handleUploadCollageDirect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadCollageDirect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const url = event.target?.result as string;
+    try {
+      const url = await compressImageFile(file, 1536, 0.85);
       setCollageResult(url);
       await handleAnalyzeCollage(url);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Failed to upload collage:', err);
+      alert('コラージュアップロードに失敗しました');
+    }
   };
 
   // GPT Image 2でコラージュ画像を生成
@@ -1375,17 +1471,17 @@ export default function Home() {
                         <input
                           type="file"
                           accept="image/*"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              const url = event.target?.result as string;
+                            try {
+                              const url = await compressImageFile(file);
                               const updated = [...(input.referenceImages || [])];
                               updated[0] = { url, description: file.name };
                               setInput({ ...input, referenceImages: updated });
-                            };
-                            reader.readAsDataURL(file);
+                            } catch (err) {
+                              console.error('Failed to upload reference image:', err);
+                            }
                           }}
                           className="hidden"
                         />
@@ -1419,21 +1515,20 @@ export default function Home() {
                         <input
                           type="file"
                           accept="image/*"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              const url = event.target?.result as string;
+                            try {
+                              const url = await compressImageFile(file);
                               const updated = [...(input.referenceImages || [])];
-                              // 配列を確保
                               while (updated.length < 2) {
                                 updated.push({ url: '', description: '' });
                               }
                               updated[1] = { url, description: file.name };
                               setInput({ ...input, referenceImages: updated.filter(img => img.url) });
-                            };
-                            reader.readAsDataURL(file);
+                            } catch (err) {
+                              console.error('Failed to upload reference image:', err);
+                            }
                           }}
                           className="hidden"
                         />

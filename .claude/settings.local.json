@@ -13,7 +13,8 @@
       "Bash(curl -s http://localhost:3000/)",
       "Bash(awk 'NR>=1232 && NR<=1322' \"C:\\\\Users\\\\snaft\\\\OneDrive\\\\デスクトップ\\\\開発\\\\ai-storyboard-director\\\\src\\\\app\\\\page.tsx\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
-      "Bash(vercel deploy *)"
+      "Bash(vercel deploy *)",
+      "Bash(vercel env *)"
     ]
   }
 }
