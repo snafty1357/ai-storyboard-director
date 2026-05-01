@@ -159,6 +159,39 @@ export default function Home() {
     if (error) console.error('Supabase delete error:', error);
   };
 
+  // localStorageへの安全な保存（容量超過時は古いエントリを削除）
+  const safeSetHistory = (entries: HistoryEntry[]) => {
+    // 画像データを除外した軽量版を作成（localStorageには軽量版を保存）
+    const lightweight = entries.map((e) => ({
+      ...e,
+      // base64画像は大きいのでlocalStorageには保存しない（Supabaseのみ）
+      generatedImages: e.generatedImages?.map((img) => ({
+        ...img,
+        url: img.url?.startsWith('data:') ? '' : img.url, // base64は除外
+      })),
+      collageResult: e.collageResult?.startsWith('data:') ? undefined : e.collageResult,
+    }));
+
+    try {
+      localStorage.setItem('storyboard-history', JSON.stringify(lightweight));
+    } catch (err) {
+      // 容量超過の場合、古いエントリを削除して再試行
+      if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+        console.warn('localStorage quota exceeded, removing old entries...');
+        const reduced = lightweight.slice(0, Math.max(5, Math.floor(lightweight.length / 2)));
+        try {
+          localStorage.setItem('storyboard-history', JSON.stringify(reduced));
+        } catch {
+          // それでも失敗したらlocalStorageをクリア
+          console.warn('Still exceeding quota, clearing localStorage history');
+          localStorage.removeItem('storyboard-history');
+        }
+      } else {
+        console.error('Failed to save history to localStorage:', err);
+      }
+    }
+  };
+
   // ストーリーボードサイドバーのリサイズ
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
@@ -296,7 +329,7 @@ export default function Home() {
 
     const newHistory = [entry, ...history].slice(0, 30);
     setHistory(newHistory);
-    localStorage.setItem('storyboard-history', JSON.stringify(newHistory));
+    safeSetHistory(newHistory);
   };
 
   // 自動保存: output, generatedImages, generatedVideo の変化に応じて最新エントリを更新/追加
@@ -351,7 +384,7 @@ export default function Home() {
         entryToPersist = created;
         next = [created, ...prev].slice(0, 30);
       }
-      localStorage.setItem('storyboard-history', JSON.stringify(next));
+      safeSetHistory(next);
       // Supabase へ非同期upsert（待たない）
       upsertHistoryToDb(entryToPersist);
       return next;
@@ -409,7 +442,7 @@ export default function Home() {
   const deleteFromHistory = (id: string) => {
     const newHistory = history.filter(h => h.id !== id);
     setHistory(newHistory);
-    localStorage.setItem('storyboard-history', JSON.stringify(newHistory));
+    safeSetHistory(newHistory);
     deleteHistoryFromDb(id);
   };
 
