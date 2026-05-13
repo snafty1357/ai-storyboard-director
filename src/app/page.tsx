@@ -661,7 +661,8 @@ export default function Home() {
       setDurations((d) => ({ ...d, collageMs: Date.now() - startedAt }));
       setIsGeneratingCollage(false);
       // コラージュ作成後、自動でストーリーボード作成へ
-      await handleAnalyzeCollage(data.collageUrl);
+      // 明示的にアップロード枚数を渡すことでキーフレーム数と確実に一致させる
+      await handleAnalyzeCollage(data.collageUrl, collageImages.length);
       return;
     } catch (error) {
       console.error('Failed to generate collage:', error);
@@ -749,7 +750,7 @@ export default function Home() {
   };
 
   // コラージュを分析してストーリーボードプロンプトを生成
-  const handleAnalyzeCollage = async (urlOverride?: string) => {
+  const handleAnalyzeCollage = async (urlOverride?: string, keyframeCountOverride?: number) => {
     const collageUrl = typeof urlOverride === 'string' ? urlOverride : collageResult;
     if (!collageUrl) return;
 
@@ -779,8 +780,15 @@ export default function Home() {
 
       // 2. ストーリーボード出力を生成（プロンプトエンジン）
       // コラージュ画像をアップロードした場合は、その枚数をキーフレーム数として使用
+      // 呼び出し元から明示的に渡された keyframeCountOverride を最優先
       const conceptForGen = input.concept.trim() || data.prompt;
-      const keyframeCount = collageImages.length > 0 ? collageImages.length : input.keyframeCount;
+      const keyframeCount =
+        keyframeCountOverride && keyframeCountOverride > 0
+          ? keyframeCountOverride
+          : collageImages.length > 0
+          ? collageImages.length
+          : input.keyframeCount;
+      console.log('[handleAnalyzeCollage] keyframeCount =', keyframeCount, '(override:', keyframeCountOverride, ', collageImages:', collageImages.length, ')');
       const generated = generateStoryboard({ ...input, concept: conceptForGen, keyframeCount });
       setOutput(generated);
 
