@@ -76,6 +76,7 @@ export interface StoryboardInput {
   additionalNotes?: string;  // 追加の指示
   characters?: Character[];  // 登場人物
   referenceImages?: ReferenceImage[]; // 参照画像
+  keyframeCount?: number;    // キーフレーム数（コラージュ画像枚数から自動指定）
 }
 
 // 5秒ショット

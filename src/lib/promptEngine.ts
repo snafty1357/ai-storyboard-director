@@ -164,7 +164,7 @@ export function generateStoryboard(input: StoryboardInput): StoryboardOutput {
   const creativeInterpretation = generateCreativeInterpretation(safeConcept, genre, input.mood);
 
   // 2. 15秒ショットプラン
-  const shotPlan = generateShotPlan(safeConcept, genre, preset, keywords);
+  const shotPlan = generateShotPlan(safeConcept, genre, preset, keywords, input.keyframeCount);
 
   // 3. GPT Image 2 キーフレームプロンプト
   const keyframePrompts = generateKeyframePrompts(shotPlan, preset, keywords, input.aspectRatio);
@@ -209,39 +209,51 @@ function generateShotPlan(
   concept: string,
   genre: Genre,
   preset: typeof genrePresets[Genre],
-  keywords: ReturnType<typeof extractKeywords>
+  keywords: ReturnType<typeof extractKeywords>,
+  keyframeCount?: number
 ): Shot[] {
-  const beats = ['Setup', 'Escalation', 'Hook'];
-  const timeRanges = ['0-5s', '5-10s', '10-15s'];
+  const count = Math.max(1, Math.min(12, keyframeCount ?? 3));
+  const totalSeconds = 15;
+  const segment = totalSeconds / count;
 
-  return beats.map((beat, idx) => {
-    const camera = selectCameraMovements(genre, idx);
-    const shotType = selectShotTypes(idx);
+  return Array.from({ length: count }, (_, idx) => {
+    // インデックスを Setup(0) / Escalation(1) / Hook(2) フェーズにマッピング
+    let phaseIndex: 0 | 1 | 2;
+    if (count === 1) phaseIndex = 2;
+    else if (idx === 0) phaseIndex = 0;
+    else if (idx === count - 1) phaseIndex = 2;
+    else phaseIndex = 1;
+
+    const camera = selectCameraMovements(genre, phaseIndex);
+    const shotType = selectShotTypes(phaseIndex);
     const lighting = preset.lighting[idx % preset.lighting.length];
+
+    let beat: string;
+    if (count === 1) beat = 'Hook';
+    else if (idx === 0) beat = 'Setup';
+    else if (idx === count - 1) beat = 'Hook';
+    else if (count === 3) beat = 'Escalation';
+    else beat = `Escalation ${idx}`;
+
+    const startTime = Math.round(idx * segment * 10) / 10;
+    const endTime = Math.round((idx + 1) * segment * 10) / 10;
+    const timeRange = `${startTime}-${endTime}s`;
 
     let action: string;
     let description: string;
-
-    switch (idx) {
-      case 0:
-        action = `${keywords.environment}のワイドショット。${keywords.mood}な雰囲気が画面を支配する。`;
-        description = `Establishing shot: 世界観を確立し、観客を引き込む`;
-        break;
-      case 1:
-        action = `${keywords.subject}が${keywords.action}。動きと存在感が画面に緊張を生む。`;
-        description = `Character moment: 主要な被写体にフォーカス`;
-        break;
-      case 2:
-        action = `クライマックスの瞬間。${keywords.subject}の決定的な表情または動作。`;
-        description = `Hook: 感情的なインパクトを最大化し、記憶に残る`;
-        break;
-      default:
-        action = concept;
-        description = 'Visual beat';
+    if (phaseIndex === 0) {
+      action = `${keywords.environment}のワイドショット。${keywords.mood}な雰囲気が画面を支配する。`;
+      description = `Establishing shot: 世界観を確立し、観客を引き込む`;
+    } else if (phaseIndex === 2) {
+      action = `クライマックスの瞬間。${keywords.subject}の決定的な表情または動作。`;
+      description = `Hook: 感情的なインパクトを最大化し、記憶に残る`;
+    } else {
+      action = `${keywords.subject}が${keywords.action}。動きと存在感が画面に緊張を生む。`;
+      description = `Character moment: 主要な被写体にフォーカス`;
     }
 
     return {
-      timeRange: timeRanges[idx],
+      timeRange,
       beatName: beat,
       action,
       cameraMovement: camera,

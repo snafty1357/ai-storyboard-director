@@ -778,8 +778,10 @@ export default function Home() {
       setStoryboardPrompt(data.prompt);
 
       // 2. ストーリーボード出力を生成（プロンプトエンジン）
+      // コラージュ画像をアップロードした場合は、その枚数をキーフレーム数として使用
       const conceptForGen = input.concept.trim() || data.prompt;
-      const generated = generateStoryboard({ ...input, concept: conceptForGen });
+      const keyframeCount = collageImages.length > 0 ? collageImages.length : input.keyframeCount;
+      const generated = generateStoryboard({ ...input, concept: conceptForGen, keyframeCount });
       setOutput(generated);
 
       // 3. キーフレーム画像を生成（コラージュを参照画像として使用）
