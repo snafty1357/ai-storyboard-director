@@ -100,11 +100,6 @@ function HistoryEntryCard({ entry, onLoad, onDelete }: HistoryEntryCardProps) {
                 コラージュ
               </span>
             )}
-            {entry.generatedImages && entry.generatedImages.filter((i) => i.url).length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-indigo-600/20 text-indigo-400 rounded">
-                キーフレーム×{entry.generatedImages.filter((i) => i.url).length}
-              </span>
-            )}
             {entry.generatedVideo && (
               <span className="text-[10px] px-1.5 py-0.5 bg-pink-600/20 text-pink-400 rounded">
                 動画
@@ -127,7 +122,7 @@ function HistoryEntryCard({ entry, onLoad, onDelete }: HistoryEntryCardProps) {
                 <span>|</span>
                 <span
                   className="text-amber-400 font-mono"
-                  title={`内訳: コラージュ$${entry.cost.collage.toFixed(3)} / 分析$${entry.cost.collageAnalysis.toFixed(3)} / キーフレーム$${entry.cost.keyframes.toFixed(3)} / SDプロンプト$${entry.cost.seedancePrompt.toFixed(3)} / 動画$${entry.cost.video.toFixed(3)}`}
+                  title={`内訳: コラージュ$${entry.cost.collage.toFixed(3)} / 分析$${entry.cost.collageAnalysis.toFixed(3)} / SDプロンプト$${entry.cost.seedancePrompt.toFixed(3)} / 動画$${entry.cost.video.toFixed(3)}`}
                 >
                   ${entry.cost.total.toFixed(3)}
                 </span>
@@ -164,21 +159,6 @@ function HistoryEntryCard({ entry, onLoad, onDelete }: HistoryEntryCardProps) {
         </div>
       </div>
 
-      {/* Thumbnails */}
-      {entry.generatedImages && entry.generatedImages.length > 0 && (
-        <div className="flex gap-2 mt-3">
-          {entry.generatedImages.slice(0, 3).map((img, idx) => (
-            img.url && (
-              <img
-                key={idx}
-                src={img.url}
-                alt={`Thumbnail ${idx + 1}`}
-                className="w-16 h-16 object-cover rounded border border-[#2a2a3a]"
-              />
-            )
-          ))}
-        </div>
-      )}
     </div>
   );
 }

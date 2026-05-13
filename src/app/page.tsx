@@ -49,9 +49,6 @@ export default function Home() {
   const [copyrightWarnings, setCopyrightWarnings] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [showPrompts, setShowPrompts] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<{ url: string; prompt: string }[]>([]);
-  const [isGeneratingImages, setIsGeneratingImages] = useState(false);
-  const [imageGenerationProgress, setImageGenerationProgress] = useState(0);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -72,7 +69,6 @@ export default function Home() {
   const [showConceptInput, setShowConceptInput] = useState(true);
   const [showStoryboardSidebar, setShowStoryboardSidebar] = useState(true);
   const [storyboardSidebarWidth, setStoryboardSidebarWidth] = useState(480);
-  const [showKeyframePrompts, setShowKeyframePrompts] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [durations, setDurations] = useState<GenerationDurations>({});
   // 単価（USD・概算）— quality=low / 720p想定
@@ -85,9 +81,8 @@ export default function Home() {
     const collage = entry.collageResult ? PRICING.gptImageLow : 0;
     const themeSuggestion = 0; // optional
     const collageAnalysis = entry.output ? PRICING.gpt4oVision : 0;
-    const keyframeCount = (entry.generatedImages || []).filter((i) => !!i.url).length;
-    const keyframes = keyframeCount * PRICING.gptImageLow;
-    const seedancePrompt = keyframeCount >= 1 && entry.output?.seedancePrompt ? PRICING.gpt4oVision : 0;
+    const keyframes = 0;
+    const seedancePrompt = entry.output?.seedancePrompt ? PRICING.gpt4oVision : 0;
     const video = entry.generatedVideo ? PRICING.seedance720p15s : 0;
     const total = collage + themeSuggestion + collageAnalysis + keyframes + seedancePrompt + video;
     return { collage, themeSuggestion, collageAnalysis, keyframes, seedancePrompt, video, total };
@@ -367,7 +362,6 @@ export default function Home() {
     const draft: Partial<HistoryEntry> = {
       input,
       output,
-      generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
       generatedVideo: generatedVideo || undefined,
       collageResult: collageResult || undefined,
     };
@@ -376,7 +370,6 @@ export default function Home() {
       timestamp: Date.now(),
       input,
       output,
-      generatedImages: draft.generatedImages,
       generatedVideo: draft.generatedVideo,
       collageResult: draft.collageResult,
       cost: computeCost(draft),
@@ -398,7 +391,6 @@ export default function Home() {
     const draft: Partial<HistoryEntry> = {
       input,
       output,
-      generatedImages: generatedImages.length > 0 ? generatedImages : undefined,
       generatedVideo: generatedVideo || undefined,
       collageResult: collageResult || undefined,
     };
@@ -416,7 +408,6 @@ export default function Home() {
           ...newest,
           input,
           output,
-          generatedImages: draft.generatedImages,
           generatedVideo: draft.generatedVideo,
           collageResult: draft.collageResult,
           cost,
@@ -430,7 +421,6 @@ export default function Home() {
           timestamp: Date.now(),
           input,
           output,
-          generatedImages: draft.generatedImages,
           generatedVideo: draft.generatedVideo,
           collageResult: draft.collageResult,
           cost,
@@ -445,7 +435,7 @@ export default function Home() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [output, generatedImages, generatedVideo, collageResult, durations]);
+  }, [output, generatedVideo, collageResult, durations]);
 
   // 履歴エントリのoutputを検証し、不足フィールドをデフォルト値で補完
   const sanitizeOutput = (output: StoryboardOutput | null | undefined): StoryboardOutput | null => {
@@ -486,7 +476,6 @@ export default function Home() {
     isLoadingFromHistoryRef.current = true;
     setInput(sanitizeInput(entry.input));
     setOutput(sanitizeOutput(entry.output));
-    setGeneratedImages(entry.generatedImages || []);
     setGeneratedVideo(entry.generatedVideo || null);
     setCollageResult(entry.collageResult || null);
     setDurations(entry.durations || {});
@@ -514,48 +503,6 @@ export default function Home() {
     const generated = generateStoryboard(input);
     setOutput(generated);
     setIsGenerating(false);
-    setGeneratedImages([]); // 新しいストーリーボード生成時に画像をリセット
-  };
-
-  const handleGenerateImages = async () => {
-    if (!output) return;
-
-    setIsGeneratingImages(true);
-    setImageGenerationProgress(0);
-    setGeneratedImages([]);
-
-    const newImages: { url: string; prompt: string }[] = [];
-
-    for (let i = 0; i < output.keyframePrompts.length; i++) {
-      const kf = output.keyframePrompts[i];
-      setImageGenerationProgress(i + 1);
-
-      try {
-        const response = await fetch('/api/generate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: kf.prompt,
-            aspectRatio: input.aspectRatio,
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Image generation failed');
-        }
-
-        const data = await response.json();
-        newImages.push({ url: data.url, prompt: kf.prompt });
-        setGeneratedImages([...newImages]);
-      } catch (error) {
-        console.error(`Failed to generate image ${i + 1}:`, error);
-        newImages.push({ url: '', prompt: kf.prompt });
-        setGeneratedImages([...newImages]);
-      }
-    }
-
-    setIsGeneratingImages(false);
   };
 
   // キャラクター追加（最大2人まで）
@@ -661,8 +608,7 @@ export default function Home() {
       setDurations((d) => ({ ...d, collageMs: Date.now() - startedAt }));
       setIsGeneratingCollage(false);
       // コラージュ作成後、自動でストーリーボード作成へ
-      // 明示的にアップロード枚数を渡すことでキーフレーム数と確実に一致させる
-      await handleAnalyzeCollage(data.collageUrl, collageImages.length);
+      await handleAnalyzeCollage(data.collageUrl);
       return;
     } catch (error) {
       console.error('Failed to generate collage:', error);
@@ -749,15 +695,14 @@ export default function Home() {
     }
   };
 
-  // コラージュを分析してストーリーボードプロンプトを生成
-  const handleAnalyzeCollage = async (urlOverride?: string, keyframeCountOverride?: number) => {
+  // コラージュを分析してストーリーボードを生成（キーフレーム画像生成は行わない）
+  const handleAnalyzeCollage = async (urlOverride?: string) => {
     const collageUrl = typeof urlOverride === 'string' ? urlOverride : collageResult;
     if (!collageUrl) return;
 
     setIsAnalyzingCollage(true);
     setStoryboardPrompt('');
     setOutput(null);
-    setGeneratedImages([]);
     const startedAt = Date.now();
 
     try {
@@ -779,96 +724,33 @@ export default function Home() {
       setStoryboardPrompt(data.prompt);
 
       // 2. ストーリーボード出力を生成（プロンプトエンジン）
-      // コラージュ画像をアップロードした場合は、その枚数をキーフレーム数として使用
-      // 呼び出し元から明示的に渡された keyframeCountOverride を最優先
       const conceptForGen = input.concept.trim() || data.prompt;
-      const keyframeCount =
-        keyframeCountOverride && keyframeCountOverride > 0
-          ? keyframeCountOverride
-          : collageImages.length > 0
-          ? collageImages.length
-          : input.keyframeCount;
-      console.log('[handleAnalyzeCollage] keyframeCount =', keyframeCount, '(override:', keyframeCountOverride, ', collageImages:', collageImages.length, ')');
-      const generated = generateStoryboard({ ...input, concept: conceptForGen, keyframeCount });
+      const generated = generateStoryboard({ ...input, concept: conceptForGen });
       setOutput(generated);
 
-      // 3. キーフレーム画像を生成（コラージュを参照画像として使用）
-      const newImages: { url: string; prompt: string }[] = [];
-      const tryGenerateKeyframe = async (
-        scenePrompt: string,
-        attempt: 'full' | 'safer' | 'minimal'
-      ): Promise<string> => {
-        let prompt: string;
-        if (attempt === 'full') {
-          prompt = `Extract and render this single scene as a standalone cinematic frame, using the provided collage as the visual reference for character likeness, style, color palette, and aesthetic. Scene: ${scenePrompt}. Match the look and characters from the reference collage. Aspect ratio: ${input.aspectRatio}. High quality, photorealistic, dramatic lighting.`;
-        } else if (attempt === 'safer') {
-          // セーフティ違反回避: 人物描写を一般化、抽象的な表現に
-          prompt = `Cinematic frame inspired by the reference collage. Match the visual style, color palette, and atmosphere. Scene: ${scenePrompt}. Aspect ratio: ${input.aspectRatio}. Professional cinematography, dramatic lighting, painterly style. No identifiable likeness of real people.`;
-        } else {
-          // 最小限: 環境・雰囲気のみ（キャラクター描写を完全に避ける）
-          prompt = `Cinematic environment shot. Match the color palette and lighting from the reference collage. Setting and mood: ${scenePrompt.split(/[.!?]/)[0] || 'cinematic'}. Aspect ratio: ${input.aspectRatio}. No people, focus on environment, atmosphere, lighting, and objects.`;
-        }
-        const imgRes = await fetch('/api/generate-image', {
+      // 3. コラージュ画像から Seedance プロンプトを生成して output.seedancePrompt を更新
+      try {
+        const sdRes = await fetch('/api/generate-seedance-prompt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt,
+            keyframeUrls: [collageUrl],
+            concept: conceptForGen,
+            mood: input.mood,
+            additionalNotes: input.additionalNotes,
             aspectRatio: input.aspectRatio,
-            referenceImages: [collageUrl],
           }),
         });
-        if (!imgRes.ok) {
-          const err = await imgRes.json().catch(() => ({}));
-          throw new Error(err.error || 'Image generation failed');
-        }
-        const imgData = await imgRes.json();
-        return imgData.url as string;
-      };
-
-      for (let i = 0; i < generated.keyframePrompts.length; i++) {
-        const kf = generated.keyframePrompts[i];
-        const attempts: ('full' | 'safer' | 'minimal')[] = ['full', 'safer', 'minimal'];
-        let url = '';
-        for (const attempt of attempts) {
-          try {
-            url = await tryGenerateKeyframe(kf.prompt, attempt);
-            if (url) break;
-          } catch (err) {
-            console.warn(`Keyframe ${i + 1} attempt "${attempt}" failed:`, err);
+        if (sdRes.ok) {
+          const sdData = await sdRes.json();
+          if (sdData.prompt) {
+            setOutput((prev) => prev ? { ...prev, seedancePrompt: sdData.prompt } : prev);
           }
         }
-        if (!url) {
-          console.error(`Failed to generate keyframe ${i + 1} after all retries.`);
-        }
-        newImages.push({ url, prompt: kf.prompt });
-        setGeneratedImages([...newImages]);
+      } catch (err) {
+        console.error('Failed to generate seedance prompt from collage:', err);
       }
 
-      // 4. キーフレーム画像から Seedance プロンプトを生成して output.seedancePrompt を更新
-      const validKeyframes = newImages.map((n) => n.url).filter((u) => !!u);
-      if (validKeyframes.length >= 1) {
-        try {
-          const sdRes = await fetch('/api/generate-seedance-prompt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              keyframeUrls: validKeyframes.slice(0, 3),
-              concept: conceptForGen,
-              mood: input.mood,
-              additionalNotes: input.additionalNotes,
-              aspectRatio: input.aspectRatio,
-            }),
-          });
-          if (sdRes.ok) {
-            const sdData = await sdRes.json();
-            if (sdData.prompt) {
-              setOutput((prev) => prev ? { ...prev, seedancePrompt: sdData.prompt } : prev);
-            }
-          }
-        } catch (err) {
-          console.error('Failed to generate seedance prompt from keyframes:', err);
-        }
-      }
       setDurations((d) => ({ ...d, analysisMs: Date.now() - startedAt }));
     } catch (error) {
       console.error('Failed to analyze collage:', error);
@@ -886,18 +768,17 @@ export default function Home() {
     setGeneratedVideo(null);
     const startedAt = Date.now();
 
-    // ストーリーボード作成時にキーフレームから生成された Seedance プロンプトを使用
+    // ストーリーボード作成時に生成された Seedance プロンプトを使用
     let videoPrompt = output?.seedancePrompt || '';
-    const keyframeUrls = generatedImages.map((g) => g.url).filter((u) => !!u);
 
-    // output に Seedance プロンプトが無く、キーフレームがある場合はその場で生成
-    if (!videoPrompt && keyframeUrls.length >= 1) {
+    // output に Seedance プロンプトが無い場合は、コラージュ画像から生成
+    if (!videoPrompt && collageResult) {
       try {
         const res = await fetch('/api/generate-seedance-prompt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            keyframeUrls: keyframeUrls.slice(0, 3),
+            keyframeUrls: [collageResult],
             concept: input.concept,
             mood: input.mood,
             additionalNotes: input.additionalNotes,
@@ -912,7 +793,7 @@ export default function Home() {
           }
         }
       } catch (err) {
-        console.error('Failed to generate seedance prompt from keyframes:', err);
+        console.error('Failed to generate seedance prompt from collage:', err);
       }
     }
 
@@ -959,42 +840,6 @@ export default function Home() {
       const data = await response.json();
       setGeneratedVideo(data.videoUrl);
       setDurations((d) => ({ ...d, videoMs: Date.now() - startedAt }));
-    } catch (error) {
-      console.error('Failed to generate video:', error);
-      alert('動画生成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      setIsGeneratingVideo(false);
-    }
-  };
-
-  // 動画生成
-  const handleGenerateVideo = async () => {
-    if (!output || generatedImages.length === 0) return;
-
-    setIsGeneratingVideo(true);
-    setGeneratedVideo(null);
-
-    try {
-      // 最初の生成画像を使用
-      const imageUrl = generatedImages[0]?.url;
-
-      const response = await fetch('/api/generate-video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: output.seedancePrompt,
-          imageUrl: imageUrl,
-          aspectRatio: input.aspectRatio,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Video generation failed');
-      }
-
-      const data = await response.json();
-      setGeneratedVideo(data.videoUrl);
     } catch (error) {
       console.error('Failed to generate video:', error);
       alert('動画生成に失敗しました: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -1742,108 +1587,6 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* 3. GPT Image 2 キーフレームプロンプト */}
-                <details open className="bg-[#141420] rounded-xl border border-[#2a2a3a] group h-[640px] overflow-y-auto">
-                  <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
-                    <h3 className="section-title text-sm mb-0">キーフレーム</h3>
-                    <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </summary>
-                  <div className="px-5 pb-5">
-                  <div className="flex items-center justify-end gap-2 mb-3">
-                    <button
-                      onClick={() => setShowKeyframePrompts((v) => !v)}
-                      className="px-3 py-1.5 text-xs bg-[#2a2a3a] hover:bg-[#3a3a4a] text-gray-300 rounded transition-colors"
-                    >
-                      {showKeyframePrompts ? 'プロンプト非表示' : 'プロンプト表示'}
-                    </button>
-                    <button
-                      onClick={handleGenerateImages}
-                      disabled={isGeneratingImages}
-                      className={`px-4 py-2 text-xs rounded-lg transition-all flex items-center gap-2 ${
-                        isGeneratingImages
-                          ? 'bg-indigo-600/50 text-white/70 cursor-not-allowed'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-500'
-                      }`}
-                    >
-                      {isGeneratingImages ? (
-                        <>
-                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          生成中 ({imageGenerationProgress}/{output.keyframePrompts.length})
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          画像を生成
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* キーフレーム: 画像とプロンプトを横並び */}
-                  <div className="space-y-3">
-                    {output.keyframePrompts.map((kf, idx) => {
-                      const img = generatedImages[idx];
-                      return (
-                        <div key={idx} className="flex gap-3 items-start">
-                          {/* 左: 画像 */}
-                          <div className={`${showKeyframePrompts ? 'w-32 shrink-0' : 'flex-1'} relative`}>
-                            {img?.url ? (
-                              <div className="relative group">
-                                <img
-                                  src={img.url}
-                                  alt={`Generated keyframe ${idx + 1}`}
-                                  className="w-full rounded-lg border border-[#2a2a3a]"
-                                />
-                                <div className="absolute top-1 left-1 px-1.5 py-0.5 bg-black/70 rounded text-[10px] text-white">
-                                  Image {idx + 1}
-                                </div>
-                                <a
-                                  href={img.url}
-                                  download={`keyframe-${idx + 1}.png`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="absolute top-1 right-1 p-1 bg-black/70 rounded hover:bg-black/90 transition-colors opacity-0 group-hover:opacity-100"
-                                  title="ダウンロード"
-                                >
-                                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                  </svg>
-                                </a>
-                              </div>
-                            ) : img && img.url === '' ? (
-                              <div className="aspect-video bg-red-900/20 border border-red-500/30 rounded-lg flex items-center justify-center">
-                                <span className="text-[10px] text-red-400">生成失敗</span>
-                              </div>
-                            ) : (
-                              <div className="aspect-video bg-[#0d0d12] border border-dashed border-[#2a2a3a] rounded-lg flex items-center justify-center">
-                                <span className="text-[10px] text-gray-600">Image {idx + 1}</span>
-                              </div>
-                            )}
-                          </div>
-                          {/* 右: プロンプト */}
-                          {showKeyframePrompts && (
-                            <div className="prompt-block p-3 flex-1 min-w-0">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs text-indigo-400">Image {kf.shotNumber}</span>
-                                <CopyButton text={kf.prompt} section={`keyframe-${idx}`} />
-                              </div>
-                              <p className="text-xs text-gray-300 leading-relaxed">{kf.prompt}</p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  </div>
-                </details>
-
                 {/* 1. クリエイティブな解釈 */}
                 <details className="bg-[#141420] rounded-xl border border-[#2a2a3a] group">
                   <summary className="cursor-pointer p-5 select-none flex items-center justify-between">
@@ -1901,10 +1644,10 @@ export default function Home() {
                     <div className="flex items-center justify-end gap-2 mb-3">
                       <CopyButton text={output.seedancePrompt} section="seedance" />
                       <button
-                        onClick={handleGenerateVideo}
-                        disabled={isGeneratingVideo || generatedImages.length === 0}
+                        onClick={handleGenerateVideoFromCollage}
+                        disabled={isGeneratingVideo || !collageResult}
                         className={`px-4 py-1.5 text-xs rounded-md transition-all flex items-center gap-2 ${
-                          isGeneratingVideo || generatedImages.length === 0
+                          isGeneratingVideo || !collageResult
                             ? 'bg-purple-600/50 text-white/70 cursor-not-allowed'
                             : 'bg-purple-600 text-white hover:bg-purple-500'
                         }`}
@@ -1932,9 +1675,9 @@ export default function Home() {
                       <p className="text-sm text-gray-200 leading-relaxed font-mono">{output.seedancePrompt}</p>
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
-                      {generatedImages.length === 0
-                        ? '※ 先に「画像を生成」ボタンで画像を生成してください'
-                        : '※ 生成した画像を使って動画を生成します'}
+                      {!collageResult
+                        ? '※ 先にコラージュを作成してください'
+                        : '※ コラージュ画像を使って動画を生成します'}
                     </p>
                   </div>
                 </details>
@@ -2072,7 +1815,7 @@ export default function Home() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  画像生成中 ({generatedImages.length}/{output.keyframePrompts.length})
+                  ストーリーボード作成中...
                 </div>
               )}
               {previewMode === '6panel' ? (
@@ -2081,7 +1824,6 @@ export default function Home() {
                   title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
                   genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
                   tagline="The story unfolds in 15 seconds."
-                  generatedImages={generatedImages}
                 />
               ) : (
                 <StoryboardPreview3Panel
@@ -2089,7 +1831,6 @@ export default function Home() {
                   title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
                   genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
                   tagline="The story unfolds in 15 seconds."
-                  generatedImages={generatedImages}
                 />
               )}
             </div>
@@ -2116,34 +1857,26 @@ ${output.shotPlan.map((shot, idx) => `### Shot ${idx + 1}: ${shot.beatName} (${s
 - **説明:** ${shot.description}
 `).join('\n')}
 
-## 3. GPT Image 2 キーフレームプロンプト
-
-${output.keyframePrompts.map(kf => `### Image ${kf.shotNumber}
-\`\`\`
-${kf.prompt}
-\`\`\`
-`).join('\n')}
-
-## 4. ストーリーボードシートプロンプト
+## 3. ストーリーボードシートプロンプト
 \`\`\`
 ${output.storyboardSheetPrompt}
 \`\`\`
 
-## 5. SEEDANCE 2.0 最終ビデオプロンプト
+## 4. SEEDANCE 2.0 最終ビデオプロンプト
 \`\`\`
 ${output.seedancePrompt}
 \`\`\`
 
-## 6. 一貫性ロック（Identity Lock）
+## 5. 一貫性ロック（Identity Lock）
 - **被写体:** ${output.identityLock.subject}
 - **衣装:** ${output.identityLock.costume}
 - **環境:** ${output.identityLock.environment}
 - **カラーパレット:** ${output.identityLock.colorPalette.join(', ')}
 
-## 7. 肯定的な制約
+## 6. 肯定的な制約
 ${output.positiveConstraints.map(c => `- ${c}`).join('\n')}
 
-## 8. アドバイス / 推奨事項
+## 7. アドバイス / 推奨事項
 ${output.recommendations.map(r => `- ${r}`).join('\n')}
 
 ---

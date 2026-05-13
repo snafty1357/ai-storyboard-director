@@ -7,11 +7,10 @@ interface StoryboardPreviewProps {
   title: string;
   genre: string;
   tagline?: string;
-  generatedImages?: { url: string; prompt: string }[];
 }
 
 // 6パネル版（添付画像スタイル）
-export function StoryboardPreview({ output, title, genre, tagline, generatedImages }: StoryboardPreviewProps) {
+export function StoryboardPreview({ output, title, genre, tagline }: StoryboardPreviewProps) {
   const panels = [
     {
       number: '01',
@@ -76,47 +75,27 @@ export function StoryboardPreview({ output, title, genre, tagline, generatedImag
 
             {/* 画像エリア */}
             <div className="aspect-[16/10] relative overflow-hidden">
-              {/* 生成された画像がある場合は表示 */}
-              {generatedImages && generatedImages[Math.floor(idx / 2)]?.url ? (
-                <>
-                  <img
-                    src={generatedImages[Math.floor(idx / 2)].url}
-                    alt={`Panel ${idx + 1}`}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                  {/* 人物検出回避用グリッド */}
-                  <div
-                    className="absolute inset-0 pointer-events-none mix-blend-overlay"
-                    style={{
-                      backgroundImage:
-                        'linear-gradient(to right, rgba(255,255,255,0.35) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.35) 1px, transparent 1px)',
-                      backgroundSize: '32px 32px',
-                    }}
-                  />
-                </>
-              ) : (
-                /* グラデーション背景（シネマティック風） */
-                <div
-                  className="absolute inset-0"
-                  style={{
-                    background: idx % 2 === 0
-                      ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f1a 100%)'
-                      : 'linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%)',
-                  }}
-                >
-                  {/* 中央のプレースホルダー */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center opacity-40">
-                      <div className="w-16 h-16 mx-auto mb-2 rounded-full border border-white/20 flex items-center justify-center">
-                        <svg className="w-8 h-8 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                      <p className="text-xs text-white/30 tracking-wider">@Image{Math.ceil((idx + 1) / 2)}</p>
+              {/* グラデーション背景（シネマティック風） */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: idx % 2 === 0
+                    ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f1a 100%)'
+                    : 'linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%)',
+                }}
+              >
+                {/* 中央のプレースホルダー */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center opacity-40">
+                    <div className="w-16 h-16 mx-auto mb-2 rounded-full border border-white/20 flex items-center justify-center">
+                      <svg className="w-8 h-8 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
                     </div>
+                    <p className="text-xs text-white/30 tracking-wider">Panel {idx + 1}</p>
                   </div>
                 </div>
-              )}
+              </div>
               {/* シネマティックなオーバーレイ */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
             </div>
@@ -152,7 +131,7 @@ export function StoryboardPreview({ output, title, genre, tagline, generatedImag
 }
 
 // 3パネル版（シンプルな5秒×3構成用）
-export function StoryboardPreview3Panel({ output, title, genre, tagline, generatedImages }: StoryboardPreviewProps) {
+export function StoryboardPreview3Panel({ output, title, genre, tagline }: StoryboardPreviewProps) {
   const panels = output.shotPlan.map((shot, idx) => ({
     number: String(idx + 1).padStart(2, '0'),
     timeRange: shot.timeRange,
@@ -202,44 +181,24 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline, generat
 
             {/* 画像エリア */}
             <div className="aspect-video relative overflow-hidden">
-              {/* 生成された画像がある場合は表示 */}
-              {generatedImages && generatedImages[idx]?.url ? (
-                <>
-                  <img
-                    src={generatedImages[idx].url}
-                    alt={`Panel ${idx + 1}`}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                  {/* 人物検出回避用グリッド */}
+              <div
+                className={`absolute inset-0 bg-gradient-to-br ${colors[idx]?.bg ?? colors[0].bg}`}
+              >
+                {/* プレースホルダー */}
+                <div className="absolute inset-0 flex items-center justify-center">
                   <div
-                    className="absolute inset-0 pointer-events-none mix-blend-overlay"
-                    style={{
-                      backgroundImage:
-                        'linear-gradient(to right, rgba(255,255,255,0.35) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.35) 1px, transparent 1px)',
-                      backgroundSize: '32px 32px',
-                    }}
-                  />
-                </>
-              ) : (
-                <div
-                  className={`absolute inset-0 bg-gradient-to-br ${colors[idx].bg}`}
-                >
-                  {/* プレースホルダー */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div
-                      className="w-14 h-14 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: `${colors[idx].accent}30` }}
+                    className="w-14 h-14 rounded-lg flex items-center justify-center"
+                    style={{ backgroundColor: `${(colors[idx]?.accent ?? colors[0].accent)}30` }}
+                  >
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: colors[idx]?.accent ?? colors[0].accent }}
                     >
-                      <span
-                        className="text-sm font-medium"
-                        style={{ color: colors[idx].accent }}
-                      >
-                        IMG {idx + 1}
-                      </span>
-                    </div>
+                      IMG {idx + 1}
+                    </span>
                   </div>
                 </div>
-              )}
+              </div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
             </div>
 
