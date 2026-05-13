@@ -7,15 +7,17 @@ interface StoryboardPreviewProps {
   title: string;
   genre: string;
   tagline?: string;
+  panelImages?: string[];
 }
 
 // ストーリーボードプレビュー (shotPlan の枚数に応じて可変)
-export function StoryboardPreview({ output, title, genre, tagline }: StoryboardPreviewProps) {
+export function StoryboardPreview({ output, title, genre, tagline, panelImages }: StoryboardPreviewProps) {
   const panels = output.shotPlan.map((shot, idx) => ({
     number: String(idx + 1).padStart(2, '0'),
     title: shot.beatName.toUpperCase(),
     subtitle: shot.action.slice(0, 60),
     camera: `CAMERA: ${shot.cameraMovement} / ${shot.shotType}. ${shot.description}`,
+    image: panelImages?.[idx] || null,
   }));
 
   // パネル数に応じてグリッド列数を調整
@@ -57,29 +59,36 @@ export function StoryboardPreview({ output, title, genre, tagline }: StoryboardP
 
             {/* 画像エリア */}
             <div className="aspect-[16/10] relative overflow-hidden">
-              {/* グラデーション背景（シネマティック風） */}
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: idx % 2 === 0
-                    ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f1a 100%)'
-                    : 'linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%)',
-                }}
-              >
-                {/* 中央のプレースホルダー */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center opacity-40">
-                    <div className="w-16 h-16 mx-auto mb-2 rounded-full border border-white/20 flex items-center justify-center">
-                      <svg className="w-8 h-8 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
+              {panel.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={panel.image}
+                  alt={`Panel ${idx + 1}`}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : (
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background: idx % 2 === 0
+                      ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f0f1a 100%)'
+                      : 'linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%)',
+                  }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center opacity-40">
+                      <div className="w-16 h-16 mx-auto mb-2 rounded-full border border-white/20 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <p className="text-xs text-white/30 tracking-wider">Panel {idx + 1}</p>
                     </div>
-                    <p className="text-xs text-white/30 tracking-wider">Panel {idx + 1}</p>
                   </div>
                 </div>
-              </div>
+              )}
               {/* シネマティックなオーバーレイ */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 pointer-events-none" />
             </div>
 
             {/* パネル情報 */}
@@ -113,7 +122,7 @@ export function StoryboardPreview({ output, title, genre, tagline }: StoryboardP
 }
 
 // シンプルパネル版 (shotPlan の枚数に応じて可変)
-export function StoryboardPreview3Panel({ output, title, genre, tagline }: StoryboardPreviewProps) {
+export function StoryboardPreview3Panel({ output, title, genre, tagline, panelImages }: StoryboardPreviewProps) {
   const panels = output.shotPlan.map((shot, idx) => ({
     number: String(idx + 1).padStart(2, '0'),
     timeRange: shot.timeRange,
@@ -121,6 +130,7 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
     action: shot.action,
     camera: `CAMERA: ${shot.cameraMovement} / ${shot.shotType}. ${shot.description}`,
     lighting: shot.lighting,
+    image: panelImages?.[idx] || null,
   }));
 
   const colors = [
@@ -180,25 +190,33 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
 
             {/* 画像エリア */}
             <div className="aspect-video relative overflow-hidden">
-              <div
-                className={`absolute inset-0 bg-gradient-to-br ${getColor(idx).bg}`}
-              >
-                {/* プレースホルダー */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div
-                    className="w-14 h-14 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: `${getColor(idx).accent}30` }}
-                  >
-                    <span
-                      className="text-sm font-medium"
-                      style={{ color: getColor(idx).accent }}
+              {panel.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={panel.image}
+                  alt={`Panel ${idx + 1}`}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : (
+                <div
+                  className={`absolute inset-0 bg-gradient-to-br ${getColor(idx).bg}`}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div
+                      className="w-14 h-14 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: `${getColor(idx).accent}30` }}
                     >
-                      {idx + 1}
-                    </span>
+                      <span
+                        className="text-sm font-medium"
+                        style={{ color: getColor(idx).accent }}
+                      >
+                        {idx + 1}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30" />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none" />
             </div>
 
             {/* パネル情報 */}

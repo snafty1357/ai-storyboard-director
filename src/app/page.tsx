@@ -1844,6 +1844,7 @@ export default function Home() {
                   title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
                   genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
                   tagline="The story unfolds in 15 seconds."
+                  panelImages={collageImages}
                 />
               ) : (
                 <StoryboardPreview3Panel
@@ -1851,6 +1852,7 @@ export default function Home() {
                   title={input.concept.slice(0, 30) || 'UNTITLED PROJECT'}
                   genre={genres.find(g => g.value === input.genre)?.label || 'Cinematic'}
                   tagline="The story unfolds in 15 seconds."
+                  panelImages={collageImages}
                 />
               )}
             </div>
