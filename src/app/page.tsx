@@ -852,13 +852,29 @@ export default function Home() {
         }),
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Video generation failed');
+      // レスポンスのテキストを先に取得して、JSON/非JSON両方に対応
+      const raw = await response.text();
+      let parsed: { videoUrl?: string; error?: string } | null = null;
+      try {
+        parsed = raw ? JSON.parse(raw) : null;
+      } catch {
+        parsed = null;
       }
 
-      const data = await response.json();
-      setGeneratedVideo(data.videoUrl);
+      if (!response.ok || !parsed) {
+        // 非JSONレスポンス (Vercelのタイムアウト等) でも分かりやすいメッセージに
+        if (response.status === 504 || /timeout|timed out|An error occurred/i.test(raw)) {
+          throw new Error(`サーバータイムアウト (${response.status}). 動画生成に時間がかかりすぎたか、Vercelの関数制限に達しました。少し待って再試行してください。`);
+        }
+        const msg = parsed?.error || raw.slice(0, 200) || `HTTP ${response.status}`;
+        throw new Error(msg);
+      }
+
+      if (!parsed.videoUrl) {
+        throw new Error('動画URLがレスポンスに含まれていません');
+      }
+
+      setGeneratedVideo(parsed.videoUrl);
       setDurations((d) => ({ ...d, videoMs: Date.now() - startedAt }));
     } catch (error) {
       console.error('Failed to generate video:', error);

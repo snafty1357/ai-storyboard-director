@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
 
+// sharp での画像合成は通常数秒だが、大量画像時の安全マージン
+export const maxDuration = 120;
+
 export async function POST(request: NextRequest) {
   try {
     const { images, aspectRatio } = await request.json();

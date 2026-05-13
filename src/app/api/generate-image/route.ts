@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadToStorage } from '@/lib/supabase';
 
+// GPT Image 2 は1枚あたり10-30秒程度。安全マージンで300秒。
+export const maxDuration = 300;
+
 function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;

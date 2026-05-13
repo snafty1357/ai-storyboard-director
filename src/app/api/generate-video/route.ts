@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { fal } from '@fal-ai/client';
 import sharp from 'sharp';
 
+// Vercel Pro: 関数タイムアウト最大300秒（Seedance 2.0は通常60-120秒）
+export const maxDuration = 300;
+
 // 画像にグリッドを焼き込んで人物検出を回避
 async function bakeGridOverlay(imageBuffer: Buffer): Promise<Buffer> {
   const image = sharp(imageBuffer);

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// GPT-4o Vision分析は10-30秒程度
+export const maxDuration = 120;
+
 export async function POST(request: NextRequest) {
   try {
     const { imageUrl } = await request.json();

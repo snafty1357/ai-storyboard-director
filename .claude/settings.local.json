@@ -15,7 +15,12 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
       "Bash(vercel deploy *)",
       "Bash(vercel env *)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(lsof:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(curl:*)",
+      "WebFetch(domain:ai-storyboard-director-five.vercel.app)"
     ]
   }
 }
