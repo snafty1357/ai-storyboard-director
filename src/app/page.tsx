@@ -55,6 +55,7 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [collageImages, setCollageImages] = useState<string[]>([]);
   const [collageResult, setCollageResult] = useState<string | null>(null);
+  const [collageCutCount, setCollageCutCount] = useState<number | null>(null);
   const [isGeneratingCollage, setIsGeneratingCollage] = useState(false);
   const [collageMode, setCollageMode] = useState<'upload' | 'prompt'>('upload');
   const [collagePrompt, setCollagePrompt] = useState('');
@@ -478,6 +479,8 @@ export default function Home() {
     setOutput(sanitizeOutput(entry.output));
     setGeneratedVideo(entry.generatedVideo || null);
     setCollageResult(entry.collageResult || null);
+    // 履歴から復元したコラージュのカット数は shotPlan の長さから推定
+    setCollageCutCount(entry.output?.shotPlan?.length || null);
     setDurations(entry.durations || {});
     setShowHistory(false);
   };
@@ -586,6 +589,8 @@ export default function Home() {
 
     setIsGeneratingCollage(true);
     setCollageResult(null);
+    const cutCount = collageImages.length;
+    setCollageCutCount(cutCount);
     const startedAt = Date.now();
 
     try {
@@ -607,8 +612,8 @@ export default function Home() {
       setCollageResult(data.collageUrl);
       setDurations((d) => ({ ...d, collageMs: Date.now() - startedAt }));
       setIsGeneratingCollage(false);
-      // コラージュ作成後、自動でストーリーボード作成へ
-      await handleAnalyzeCollage(data.collageUrl);
+      // コラージュ作成後、自動でストーリーボード作成へ（カット数を明示）
+      await handleAnalyzeCollage(data.collageUrl, cutCount);
       return;
     } catch (error) {
       console.error('Failed to generate collage:', error);
@@ -625,6 +630,8 @@ export default function Home() {
     try {
       const url = await compressImageFile(file, 1536, 0.85);
       setCollageResult(url);
+      // カット数は不明: API のパネル検出に任せる
+      setCollageCutCount(null);
       await handleAnalyzeCollage(url);
     } catch (err) {
       console.error('Failed to upload collage:', err);
@@ -641,6 +648,8 @@ export default function Home() {
 
     setIsGeneratingGPTCollage(true);
     setCollageResult(null);
+    // GPT Image 2 のコラージュは固定 4x3 = 12 フレーム
+    setCollageCutCount(12);
     const startedAt = Date.now();
 
     try {
@@ -696,7 +705,7 @@ export default function Home() {
   };
 
   // コラージュを分析してストーリーボードを生成（キーフレーム画像生成は行わない）
-  const handleAnalyzeCollage = async (urlOverride?: string) => {
+  const handleAnalyzeCollage = async (urlOverride?: string, cutCountOverride?: number) => {
     const collageUrl = typeof urlOverride === 'string' ? urlOverride : collageResult;
     if (!collageUrl) return;
 
@@ -706,7 +715,7 @@ export default function Home() {
     const startedAt = Date.now();
 
     try {
-      // 1. コラージュ分析
+      // 1. コラージュ分析（パネル数も同時に検出）
       const response = await fetch('/api/analyze-collage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -724,10 +733,19 @@ export default function Home() {
       setStoryboardPrompt(data.prompt);
 
       // 2. ストーリーボード出力を生成（プロンプトエンジン）
-      // コラージュ用に画像をアップロードした場合は、その枚数をショット数として使用
+      // カット数の決定優先順位: 引数 > state > 分析結果のpanelCount > collageImages.length
       const conceptForGen = input.concept.trim() || data.prompt;
-      const keyframeCount = collageImages.length > 0 ? collageImages.length : undefined;
-      const generated = generateStoryboard({ ...input, concept: conceptForGen, keyframeCount });
+      const detectedFromApi = typeof data.panelCount === 'number' ? data.panelCount : null;
+      const resolvedCount =
+        cutCountOverride
+        ?? collageCutCount
+        ?? detectedFromApi
+        ?? (collageImages.length > 0 ? collageImages.length : undefined);
+      // 検出されたカット数を state にも反映（後続の表示用）
+      if (resolvedCount && resolvedCount !== collageCutCount) {
+        setCollageCutCount(resolvedCount);
+      }
+      const generated = generateStoryboard({ ...input, concept: conceptForGen, keyframeCount: resolvedCount });
       setOutput(generated);
 
       // 3. コラージュ画像から Seedance プロンプトを生成して output.seedancePrompt を更新
