@@ -9,46 +9,28 @@ interface StoryboardPreviewProps {
   tagline?: string;
 }
 
-// 6パネル版（添付画像スタイル）
+// ストーリーボードプレビュー (shotPlan の枚数に応じて可変)
 export function StoryboardPreview({ output, title, genre, tagline }: StoryboardPreviewProps) {
-  const panels = [
-    {
-      number: '01',
-      title: 'EXTERIOR — ESTABLISHING',
-      subtitle: output.shotPlan[0]?.action.slice(0, 40) || 'Wide establishing shot',
-      camera: `CAMERA: ${output.shotPlan[0]?.cameraMovement}. ${output.shotPlan[0]?.description}`,
-    },
-    {
-      number: '02',
-      title: 'SUBJECT ENTERS FRAME',
-      subtitle: 'Character introduction',
-      camera: `CAMERA: Tracking shot. ${output.shotPlan[0]?.shotType}. Movement and presence.`,
-    },
-    {
-      number: '03',
-      title: 'INSERT — KEY DETAIL',
-      subtitle: 'Important visual element',
-      camera: `CAMERA: Macro close-up. The detail that matters, revealed.`,
-    },
-    {
-      number: '04',
-      title: 'CLOSE-UP — EMOTION',
-      subtitle: output.shotPlan[1]?.action.slice(0, 40) || 'Emotional beat',
-      camera: `CAMERA: Tight close-up. ${output.shotPlan[1]?.description}`,
-    },
-    {
-      number: '05',
-      title: 'CONFRONTATION — TENSION',
-      subtitle: output.shotPlan[2]?.action.slice(0, 40) || 'Rising tension',
-      camera: `CAMERA: ${output.shotPlan[2]?.cameraMovement}. The space between them is charged.`,
-    },
-    {
-      number: '06',
-      title: 'HOOK — FINAL BEAT',
-      subtitle: 'Cliffhanger moment',
-      camera: `CAMERA: ${output.shotPlan[2]?.shotType}. ${output.shotPlan[2]?.description}`,
-    },
-  ];
+  const panels = output.shotPlan.map((shot, idx) => ({
+    number: String(idx + 1).padStart(2, '0'),
+    title: shot.beatName.toUpperCase(),
+    subtitle: shot.action.slice(0, 60),
+    camera: `CAMERA: ${shot.cameraMovement} / ${shot.shotType}. ${shot.description}`,
+  }));
+
+  // パネル数に応じてグリッド列数を調整
+  const colsClass =
+    panels.length <= 2
+      ? 'grid-cols-2'
+      : panels.length === 3
+      ? 'grid-cols-3'
+      : panels.length === 4
+      ? 'grid-cols-2'
+      : panels.length <= 6
+      ? 'grid-cols-3'
+      : panels.length <= 9
+      ? 'grid-cols-3'
+      : 'grid-cols-4';
 
   return (
     <div className="bg-black rounded-lg overflow-hidden shadow-2xl">
@@ -58,12 +40,12 @@ export function StoryboardPreview({ output, title, genre, tagline }: StoryboardP
           {title.toUpperCase()} — TEASER STORYBOARD
         </h2>
         <p className="text-sm text-gray-500 tracking-widest italic">
-          Genre: {genre}
+          Genre: {genre} · {panels.length} shots
         </p>
       </div>
 
-      {/* 6パネルグリッド */}
-      <div className="grid grid-cols-3 gap-1 px-1">
+      {/* パネルグリッド */}
+      <div className={`grid ${colsClass} gap-1 px-1`}>
         {panels.map((panel, idx) => (
           <div key={idx} className="relative group">
             {/* パネル番号 */}
@@ -130,7 +112,7 @@ export function StoryboardPreview({ output, title, genre, tagline }: StoryboardP
   );
 }
 
-// 3パネル版（シンプルな5秒×3構成用）
+// シンプルパネル版 (shotPlan の枚数に応じて可変)
 export function StoryboardPreview3Panel({ output, title, genre, tagline }: StoryboardPreviewProps) {
   const panels = output.shotPlan.map((shot, idx) => ({
     number: String(idx + 1).padStart(2, '0'),
@@ -145,7 +127,24 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
     { bg: 'from-blue-900/30 to-indigo-900/20', accent: '#3b82f6' },
     { bg: 'from-purple-900/30 to-violet-900/20', accent: '#8b5cf6' },
     { bg: 'from-pink-900/30 to-rose-900/20', accent: '#ec4899' },
+    { bg: 'from-amber-900/30 to-orange-900/20', accent: '#f59e0b' },
+    { bg: 'from-emerald-900/30 to-teal-900/20', accent: '#10b981' },
+    { bg: 'from-cyan-900/30 to-sky-900/20', accent: '#06b6d4' },
   ];
+  const getColor = (idx: number) => colors[idx % colors.length];
+
+  const colsClass =
+    panels.length <= 2
+      ? 'grid-cols-2'
+      : panels.length === 3
+      ? 'grid-cols-3'
+      : panels.length === 4
+      ? 'grid-cols-2'
+      : panels.length <= 6
+      ? 'grid-cols-3'
+      : panels.length <= 9
+      ? 'grid-cols-3'
+      : 'grid-cols-4';
 
   return (
     <div className="bg-black rounded-lg overflow-hidden shadow-2xl">
@@ -155,12 +154,12 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
           {title.toUpperCase()}
         </h2>
         <p className="text-xs text-gray-500 mt-2 tracking-widest">
-          {genre} | 15 SECONDS | 3 SHOTS
+          {genre} | 15 SECONDS | {panels.length} SHOTS
         </p>
       </div>
 
-      {/* 3パネルグリッド */}
-      <div className="grid grid-cols-3 gap-[1px] bg-white/5">
+      {/* パネルグリッド */}
+      <div className={`grid ${colsClass} gap-[1px] bg-white/5`}>
         {panels.map((panel, idx) => (
           <div key={idx} className="bg-black relative">
             {/* パネル番号とタイムレンジ */}
@@ -171,8 +170,8 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
               <span
                 className="text-[10px] font-mono px-2 py-0.5 rounded"
                 style={{
-                  backgroundColor: `${colors[idx].accent}20`,
-                  color: colors[idx].accent
+                  backgroundColor: `${getColor(idx).accent}20`,
+                  color: getColor(idx).accent
                 }}
               >
                 {panel.timeRange}
@@ -182,19 +181,19 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
             {/* 画像エリア */}
             <div className="aspect-video relative overflow-hidden">
               <div
-                className={`absolute inset-0 bg-gradient-to-br ${colors[idx]?.bg ?? colors[0].bg}`}
+                className={`absolute inset-0 bg-gradient-to-br ${getColor(idx).bg}`}
               >
                 {/* プレースホルダー */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div
                     className="w-14 h-14 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: `${(colors[idx]?.accent ?? colors[0].accent)}30` }}
+                    style={{ backgroundColor: `${getColor(idx).accent}30` }}
                   >
                     <span
                       className="text-sm font-medium"
-                      style={{ color: colors[idx]?.accent ?? colors[0].accent }}
+                      style={{ color: getColor(idx).accent }}
                     >
-                      IMG {idx + 1}
+                      {idx + 1}
                     </span>
                   </div>
                 </div>
@@ -208,8 +207,8 @@ export function StoryboardPreview3Panel({ output, title, genre, tagline }: Story
                 <span
                   className="px-2 py-0.5 rounded text-[10px] font-medium tracking-wider"
                   style={{
-                    backgroundColor: `${colors[idx].accent}20`,
-                    color: colors[idx].accent
+                    backgroundColor: `${getColor(idx).accent}20`,
+                    color: getColor(idx).accent
                   }}
                 >
                   {panel.title}

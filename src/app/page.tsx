@@ -724,8 +724,10 @@ export default function Home() {
       setStoryboardPrompt(data.prompt);
 
       // 2. ストーリーボード出力を生成（プロンプトエンジン）
+      // コラージュ用に画像をアップロードした場合は、その枚数をショット数として使用
       const conceptForGen = input.concept.trim() || data.prompt;
-      const generated = generateStoryboard({ ...input, concept: conceptForGen });
+      const keyframeCount = collageImages.length > 0 ? collageImages.length : undefined;
+      const generated = generateStoryboard({ ...input, concept: conceptForGen, keyframeCount });
       setOutput(generated);
 
       // 3. コラージュ画像から Seedance プロンプトを生成して output.seedancePrompt を更新
